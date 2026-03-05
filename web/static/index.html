@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reels 擷取工具</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      background: linear-gradient(135deg, #fafafa 0%, #f0f2f5 100%);
+      color: #262626;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 32px;
+    }
+    .header-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 22px;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    .header p {
+      font-size: 13px;
+      color: #8e8e8e;
+      margin-top: 2px;
+    }
+
+    /* Card */
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      margin-bottom: 20px;
+    }
+
+    /* Form */
+    .form-group { margin-bottom: 16px; }
+    .form-group:last-child { margin-bottom: 0; }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 6px;
+    }
+    .form-hint {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 4px;
+    }
+    .form-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .form-row .form-group:first-child { flex: 1; min-width: 200px; }
+    input[type="text"], input[type="number"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 10px;
+      font-size: 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      background: #fafafa;
+    }
+    input:focus {
+      outline: none;
+      border-color: #0095f6;
+      box-shadow: 0 0 0 3px rgba(0,149,246,0.1);
+      background: white;
+    }
+    input[type="number"] { width: 110px; }
+    button {
+      padding: 10px 28px;
+      background: linear-gradient(135deg, #0095f6, #0077e6);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+      white-space: nowrap;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,149,246,0.3);
+    }
+    button:active { transform: translateY(0); }
+    button:disabled {
+      background: linear-gradient(135deg, #b2dffc, #a8d4f5);
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Progress */
+    #progress-section {
+      display: none;
+    }
+    #status-text {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #333;
+    }
+    .progress-bar-outer {
+      width: 100%;
+      height: 6px;
+      background: #efefef;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .progress-bar-inner {
+      height: 100%;
+      background: linear-gradient(90deg, #0095f6, #00c6ff);
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    #log-area {
+      background: #0d1117;
+      color: #7ee787;
+      font-family: 'SF Mono', 'Fira Code', 'Menlo', monospace;
+      font-size: 11.5px;
+      padding: 14px;
+      border-radius: 10px;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.6;
+    }
+    #log-area::-webkit-scrollbar { width: 6px; }
+    #log-area::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+    /* Results */
+    #results-section { display: none; }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .results-header h2 {
+      font-size: 17px;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+    #download-link {
+      display: none;
+      padding: 8px 18px;
+      background: #00a67e;
+      color: white;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    #download-link:hover { background: #008f6c; text-decoration: none; }
+
+    /* Table */
+    .table-wrap {
+      max-height: 520px;
+      overflow-y: auto;
+      border: 1px solid #e8e8e8;
+      border-radius: 12px;
+    }
+    .table-wrap::-webkit-scrollbar { width: 6px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      background: #262626;
+      color: white;
+      text-align: left;
+      padding: 11px 14px;
+      position: sticky;
+      top: 0;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.3px;
+      z-index: 1;
+    }
+    th .th-hint {
+      display: block;
+      font-weight: 400;
+      font-size: 10px;
+      color: #aaa;
+      margin-top: 2px;
+      letter-spacing: 0;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    tr:hover td { background: #f7faff; }
+    tr:nth-child(even) td { background: #fafbfc; }
+    tr:nth-child(even):hover td { background: #f0f5ff; }
+    td a {
+      color: #0095f6;
+      text-decoration: none;
+      font-weight: 500;
+    }
+    td a:hover { text-decoration: underline; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.shortcode-cell {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: #555;
+    }
+
+    /* Error */
+    .error-msg {
+      background: #fef2f2;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: 10px;
+      border: 1px solid #fecaca;
+      margin-bottom: 16px;
+      display: none;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-icon">&#9654;</div>
+    <div>
+      <h1>Reels 擷取工具</h1>
+      <p>輸入帳號或網址，即時擷取 Instagram / Facebook / TikTok / YouTube 影片數據並匯出 CSV</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="url-input">帳號 / 網址</label>
+        <input type="text" id="url-input" placeholder="例如 halei.lawyer 或 https://www.youtube.com/@username" />
+        <div class="form-hint">支援帳號名稱、@帳號、或完整 Instagram / Facebook / TikTok / YouTube 個人頁面網址</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="platform-select">平台</label>
+        <select id="platform-select" style="width:130px;padding:10px 14px;border:1.5px solid #e0e0e0;border-radius:10px;font-size:14px;background:#fafafa;">
+          <option value="auto">自動偵測</option>
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+          <option value="tiktok">TikTok</option>
+          <option value="youtube">YouTube</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="max-reels">數量上限</label>
+        <input type="number" id="max-reels" value="50" min="1" max="9999" />
+        <div class="form-hint">1–9999，預設 50</div>
+      </div>
+      <div class="form-group">
+        <button id="scrape-btn" onclick="startScrape()">開始擷取</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="error-msg" id="error-msg"></div>
+
+  <div id="progress-section" class="card">
+    <div id="status-text">連線中...</div>
+    <div class="progress-bar-outer">
+      <div class="progress-bar-inner" id="progress-bar"></div>
+    </div>
+    <div id="log-area"></div>
+  </div>
+
+  <div id="results-section" class="card">
+    <div class="results-header">
+      <h2>擷取結果（共 <span id="result-count">0</span> 支影片）</h2>
+      <a id="download-link" href="#">下載 CSV</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>短代碼 <span class="th-hint">唯一識別碼</span></th>
+            <th class="num">觀看數 <span class="th-hint">總播放次數</span></th>
+            <th class="num">按讚數 <span class="th-hint">按讚總次數</span></th>
+            <th class="num">留言數 <span class="th-hint">留言總數</span></th>
+            <th class="num">分享數 <span class="th-hint">分享總數</span></th>
+            <th>連結 <span class="th-hint">開啟頁面</span></th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let evtSource = null;
+
+    function fmt(n) {
+      if (n == null) return '-';
+      return Number(n).toLocaleString();
+    }
+
+    function appendLog(msg) {
+      const log = document.getElementById('log-area');
+      log.textContent += msg + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function clearError() {
+      document.getElementById('error-msg').style.display = 'none';
+    }
+
+    function startScrape() {
+      const url = document.getElementById('url-input').value.trim();
+      const maxReels = document.getElementById('max-reels').value;
+      const platform = document.getElementById('platform-select').value;
+      if (!url) { showError('請輸入 Instagram、Facebook、TikTok 或 YouTube 網址或帳號名稱。'); return; }
+
+      clearError();
+
+      const btn = document.getElementById('scrape-btn');
+      btn.disabled = true;
+      btn.textContent = '擷取中...';
+
+      const progressSection = document.getElementById('progress-section');
+      progressSection.style.display = 'block';
+      document.getElementById('status-text').textContent = '連線中...';
+      document.getElementById('progress-bar').style.width = '0%';
+      document.getElementById('log-area').textContent = '';
+
+      document.getElementById('results-section').style.display = 'none';
+      document.getElementById('results-body').innerHTML = '';
+      document.getElementById('download-link').style.display = 'none';
+
+      if (evtSource) { evtSource.close(); evtSource = null; }
+
+      const params = new URLSearchParams({ url, max_reels: maxReels, platform });
+      evtSource = new EventSource(`/api/scrape?${params}`);
+
+      evtSource.onmessage = function(e) {
+        const event = JSON.parse(e.data);
+
+        switch (event.type) {
+          case 'status':
+            document.getElementById('status-text').textContent = event.message;
+            appendLog(event.message);
+            break;
+
+          case 'progress': {
+            const pct = Math.min(100, Math.round((event.found / maxReels) * 100));
+            document.getElementById('progress-bar').style.width = pct + '%';
+            document.getElementById('status-text').textContent =
+              `第 ${event.scroll} 次捲動：已找到 ${event.found} 支影片`;
+            appendLog(event.message);
+            break;
+          }
+
+          case 'log':
+            appendLog(event.message);
+            break;
+
+          case 'error':
+            showError(event.message);
+            appendLog('錯誤：' + event.message);
+            break;
+
+          case 'results':
+            renderResults(event.data, event.csv_filename);
+            break;
+
+          case 'done':
+            document.getElementById('status-text').textContent = '擷取完成！';
+            document.getElementById('progress-bar').style.width = '100%';
+            btn.disabled = false;
+            btn.textContent = '開始擷取';
+            evtSource.close();
+            evtSource = null;
+            break;
+        }
+      };
+
+      evtSource.onerror = function() {
+        showError('連線中斷，請重試。');
+        btn.disabled = false;
+        btn.textContent = '開始擷取';
+        evtSource.close();
+        evtSource = null;
+      };
+    }
+
+    function renderResults(data, csvFilename) {
+      if (!data || data.length === 0) return;
+
+      document.getElementById('result-count').textContent = data.length;
+      document.getElementById('results-section').style.display = 'block';
+
+      if (csvFilename) {
+        const link = document.getElementById('download-link');
+        link.href = `/api/download/${encodeURIComponent(csvFilename)}`;
+        link.textContent = `下載 CSV（${csvFilename}）`;
+        link.style.display = 'inline-block';
+      }
+
+      const tbody = document.getElementById('results-body');
+      tbody.innerHTML = '';
+      data.forEach((reel, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td class="shortcode-cell">${reel.shortcode}</td>
+          <td class="num">${fmt(reel.views)}</td>
+          <td class="num">${fmt(reel.likes)}</td>
+          <td class="num">${fmt(reel.comments)}</td>
+          <td class="num">${fmt(reel.shares)}</td>
+          <td><a href="${reel.url}" target="_blank" rel="noopener">開啟</a></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('url-input').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') startScrape();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+# SSH into your Linode
+ssh root@your-linode-ip
+
+# Clone your project
+git clone <your-repo-url>
+cd browser-simulator
+
+# Run setup
+bash deploy/setup_linux.sh
+
+# Copy TikTok session from your local machine (run this locally)
+scp .auth/tk_session.json root@your-linode-ip:/root/browser-simulator/.auth/
+
+# Test it
+python main.py yueweili520 --platform tiktok --max-reels 50
