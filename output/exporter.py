@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 CSV_FIELDS = [
     "account", "url", "shortcode", "views", "likes", "comments",
-    "shares", "caption", "timestamp", "scraped_at",
+    "scraped_at",
 ]
 
 

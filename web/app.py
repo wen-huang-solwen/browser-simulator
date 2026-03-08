@@ -14,6 +14,7 @@ from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from config import DATA_DIR, DEFAULT_MAX_REELS
+from web import db
 from web.login_service import get_session_status, save_uploaded_session
 from web.scrape_service import ScrapeJob, ScrapeService
 
@@ -26,10 +27,22 @@ logging.getLogger("scraper.yt_scraper").setLevel(logging.INFO)
 service = ScrapeService()
 
 
+_scrape_queue: asyncio.Queue | None = None
+_scrape_worker_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _scrape_queue, _scrape_worker_task
+    db.init_db()
     await service.startup()
+    _scrape_queue = asyncio.Queue()
+    _scrape_worker_task = asyncio.create_task(_scrape_worker())
+    # Resume any incomplete items from previous runs
+    for item_id in db.get_pending_item_ids():
+        await _scrape_queue.put(item_id)
     yield
+    _scrape_worker_task.cancel()
     await service.shutdown()
 
 
@@ -223,3 +236,118 @@ async def api_scrape(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Batch / Dashboard ───────────────────────────────────────────────────
+
+
+@app.get("/batch", response_class=HTMLResponse)
+async def batch_page():
+    path = os.path.join(STATIC_DIR, "batch.html")
+    with open(path, encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+@app.post("/api/batch/upload")
+async def batch_upload(file: UploadFile = File(...)):
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded CSV")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if "url" not in (reader.fieldnames or []):
+        raise HTTPException(status_code=400, detail="CSV must have a 'url' column")
+
+    items: list[dict] = []
+    for row in reader:
+        url = row.get("url", "").strip()
+        if not url:
+            continue
+        max_reels = int(row.get("max_reels", DEFAULT_MAX_REELS) or DEFAULT_MAX_REELS)
+        if max_reels < 1 or max_reels > 9999:
+            max_reels = DEFAULT_MAX_REELS
+        try:
+            username = service.parse_username(url)
+        except ValueError:
+            username = url
+        platform = service.detect_platform(url)
+        items.append({"url": url, "username": username, "platform": platform, "max_reels": max_reels})
+        if len(items) >= 100:
+            break
+
+    if not items:
+        raise HTTPException(status_code=400, detail="CSV contains no valid URLs")
+
+    ids = db.create_items(items)
+    for item_id in ids:
+        await _scrape_queue.put(item_id)
+    return {"total_items": len(ids)}
+
+
+@app.get("/api/batch/items")
+async def batch_items(
+    date_from: Optional[str] = Query(None, description="Filter from date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter to date (YYYY-MM-DD, inclusive)"),
+):
+    return {"items": db.list_items(date_from=date_from, date_to=date_to)}
+
+
+@app.get("/api/batch/download")
+async def batch_download_filtered(
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
+    """Download a merged CSV of all completed scrapes matching the filter."""
+    items = db.list_items(date_from=date_from, date_to=date_to)
+    done_items = [it for it in items if it["status"] == "done" and it["csv_filename"]]
+    if not done_items:
+        raise HTTPException(status_code=404, detail="No completed scrapes to download")
+
+    # Read and merge all individual CSVs
+    buf = io.StringIO()
+    from output.exporter import CSV_FIELDS
+    writer = csv.DictWriter(buf, fieldnames=CSV_FIELDS, extrasaction="ignore")
+    writer.writeheader()
+    for it in done_items:
+        filepath = os.path.join(DATA_DIR, it["csv_filename"])
+        if not os.path.isfile(filepath):
+            continue
+        with open(filepath, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                writer.writerow(row)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"scrapes_{ts}.csv"
+    return StreamingResponse(
+        io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _scrape_worker() -> None:
+    """Background worker that processes scrape items one at a time."""
+    while True:
+        item_id = await _scrape_queue.get()
+        item = db.get_item(item_id)
+        if not item or item["status"] == "done":
+            continue
+        db.update_item_status(item_id, "running")
+        try:
+            job = ScrapeJob(
+                username=item["username"] or item["url"],
+                max_reels=item["max_reels"],
+                platform=item["platform"] or "instagram",
+            )
+            await service.run_scrape(job)
+            csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
+            db.update_item_status(
+                item_id, "done",
+                csv_filename=csv_filename,
+                result_count=len(job.results),
+            )
+        except Exception as e:
+            db.update_item_status(item_id, "error", error_message=str(e)[:500])

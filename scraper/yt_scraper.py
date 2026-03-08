@@ -24,9 +24,12 @@ def _check_ytdlp() -> str:
 
 
 def _build_channel_url(username: str) -> str:
-    """Construct YouTube channel URL from username."""
+    """Construct YouTube channel URL from username or channel ID."""
     if username.startswith("http"):
         return username
+    # Channel IDs start with "UC" and are 24 characters
+    if username.startswith("UC") and len(username) == 24:
+        return f"https://www.youtube.com/channel/{username}"
     return f"https://www.youtube.com/@{username}"
 
 

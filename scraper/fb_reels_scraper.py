@@ -13,9 +13,23 @@ from config import (
     NAVIGATION_TIMEOUT,
     NO_NEW_ITEMS_THRESHOLD,
 )
-from utils.human_behavior import human_scroll, page_delay, random_delay
+from utils.human_behavior import random_delay, scroll_delay
 
 logger = logging.getLogger(__name__)
+
+
+async def _dismiss_login_dialog(page: Page) -> None:
+    """Close the Facebook login dialog that appears for unauthenticated users."""
+    closed = await page.evaluate("""() => {
+        const dialog = document.querySelector('[role="dialog"]');
+        if (dialog && dialog.getBoundingClientRect().width > 0) {
+            const closeBtn = dialog.querySelector('[aria-label="Close"]');
+            if (closeBtn) { closeBtn.click(); return true; }
+        }
+        return false;
+    }""")
+    if closed:
+        await asyncio.sleep(1)
 
 
 def parse_fb_count(text: str) -> int | None:
@@ -76,10 +90,24 @@ async def collect_fb_reels_from_grid(
     if "Page Not Found" in page_title or "This content isn't available" in page_content:
         raise ValueError(f"Facebook page '{username}' not found or not accessible")
 
+    # Check if Facebook session is valid (c_user cookie present after navigation)
+    has_session = await page.evaluate("() => document.cookie.includes('c_user')")
+    if not has_session:
+        logger.warning(
+            "Facebook session is invalid or expired — results may be limited. "
+            "Re-login with: python main.py <username> --platform facebook --login"
+        )
+
+    # Dismiss login dialog that blocks scrolling for unauthenticated sessions
+    await _dismiss_login_dialog(page)
+
     collected: dict[str, dict] = {}  # reel_id -> data
     no_new_count = 0
 
     for attempt in range(MAX_SCROLL_ATTEMPTS):
+        # Dismiss login dialog if it reappeared
+        await _dismiss_login_dialog(page)
+
         grid_data = await page.evaluate("""
             () => {
                 const results = [];
@@ -138,7 +166,11 @@ async def collect_fb_reels_from_grid(
         else:
             no_new_count = 0
 
-        await human_scroll(page)
+        # Facebook uses a #scrollview container — mouse.wheel on the document
+        # doesn't reach it. Use keyboard PageDown which scrolls the focused
+        # scrollable element correctly.
+        await page.keyboard.press("PageDown")
+        await scroll_delay()
 
     results = list(collected.values())[:max_reels]
     logger.info("Collected %d reels with stats from grid", len(results))

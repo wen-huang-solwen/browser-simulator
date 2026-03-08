@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>擷取任務總覽</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      background: linear-gradient(135deg, #fafafa 0%, #f0f2f5 100%);
+      color: #262626;
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 32px;
+    }
+    .header-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 22px;
+    }
+    .header h1 { font-size: 22px; font-weight: 700; color: #1a1a1a; }
+    .header p { font-size: 13px; color: #8e8e8e; margin-top: 2px; }
+    .nav-link { font-size: 13px; color: #0095f6; text-decoration: none; margin-left: auto; }
+    .nav-link:hover { text-decoration: underline; }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      margin-bottom: 20px;
+    }
+    .form-label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+    .form-hint { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.6; }
+    .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+
+    input[type="file"] { font-size: 13px; }
+    button {
+      padding: 10px 28px;
+      background: linear-gradient(135deg, #0095f6, #0077e6);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+      white-space: nowrap;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,149,246,0.3); }
+    button:active { transform: translateY(0); }
+    button:disabled {
+      background: linear-gradient(135deg, #b2dffc, #a8d4f5);
+      cursor: not-allowed; transform: none; box-shadow: none;
+    }
+
+    .error-msg {
+      background: #fef2f2; color: #dc2626;
+      padding: 12px 16px; border-radius: 10px; border: 1px solid #fecaca;
+      margin-bottom: 16px; display: none; font-size: 14px;
+    }
+
+    /* Table */
+    .table-wrap {
+      max-height: 600px; overflow-y: auto;
+      border: 1px solid #e8e8e8; border-radius: 12px;
+    }
+    .table-wrap::-webkit-scrollbar { width: 6px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      background: #262626; color: white;
+      text-align: left; padding: 11px 14px;
+      position: sticky; top: 0; font-weight: 600; font-size: 12px;
+      letter-spacing: 0.3px; z-index: 1;
+    }
+    td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+    tr:hover td { background: #f7faff; }
+    tr:nth-child(even) td { background: #fafbfc; }
+    tr:nth-child(even):hover td { background: #f0f5ff; }
+    td a { color: #0095f6; text-decoration: none; font-weight: 500; }
+    td a:hover { text-decoration: underline; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Status badges */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-pending { background: #f0f0f0; color: #888; }
+    .badge-running { background: #dbeafe; color: #2563eb; animation: pulse 1.5s infinite; }
+    .badge-done { background: #dcfce7; color: #16a34a; }
+    .badge-error { background: #fef2f2; color: #dc2626; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .url-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time-cell { font-size: 12px; color: #888; white-space: nowrap; }
+    .no-items { text-align: center; color: #aaa; padding: 32px; font-size: 14px; }
+    .error-detail { font-size: 11px; color: #dc2626; margin-top: 4px; }
+
+    /* Filter bar */
+    .filter-row {
+      display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .filter-row .form-group { display: flex; flex-direction: column; }
+    .filter-row label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
+    .filter-row input[type="date"] {
+      padding: 8px 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      background: #fafafa;
+    }
+    .filter-row input[type="date"]:focus {
+      outline: none; border-color: #0095f6;
+      box-shadow: 0 0 0 3px rgba(0,149,246,0.1); background: white;
+    }
+    .btn-sm {
+      padding: 8px 18px;
+      font-size: 13px;
+      border-radius: 8px;
+    }
+    .btn-download {
+      background: #00a67e;
+    }
+    .btn-download:hover { background: #008f6c; box-shadow: 0 4px 12px rgba(0,166,126,0.3); }
+    .btn-outline {
+      background: white;
+      color: #555;
+      border: 1.5px solid #e0e0e0;
+    }
+    .btn-outline:hover { background: #f5f5f5; box-shadow: none; transform: none; }
+    .filter-count { font-size: 12px; color: #888; align-self: center; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-icon">&#9776;</div>
+    <div>
+      <h1>擷取任務總覽</h1>
+      <p>上傳 CSV 批次新增擷取任務，即時查看每筆擷取進度</p>
+    </div>
+    <a href="/" class="nav-link">&#8592; 單筆擷取</a>
+  </div>
+
+  <div class="card">
+    <label class="form-label">上傳 CSV 檔案</label>
+    <div class="form-row">
+      <div>
+        <input type="file" id="csv-file" accept=".csv" />
+      </div>
+      <button id="upload-btn" onclick="uploadBatch()">新增任務</button>
+    </div>
+    <div class="form-hint">
+      CSV 格式：欄位為 <code>url</code>（必填）和 <code>max_reels</code>（選填，預設 50）。最多 100 筆。<br>
+      範例：<code>url,max_reels</code> / <code>https://www.instagram.com/halei.lawyer/reels/,5</code>
+    </div>
+  </div>
+
+  <div class="error-msg" id="error-msg"></div>
+
+  <div class="card">
+    <label class="form-label">擷取任務</label>
+    <div class="filter-row">
+      <div class="form-group">
+        <label for="date-from">開始日期</label>
+        <input type="date" id="date-from" onchange="loadItems()" />
+      </div>
+      <div class="form-group">
+        <label for="date-to">結束日期</label>
+        <input type="date" id="date-to" onchange="loadItems()" />
+      </div>
+      <button class="btn-sm btn-outline" onclick="clearFilter()">清除篩選</button>
+      <button class="btn-sm btn-download" id="download-all-btn" onclick="downloadFiltered()" style="display:none;">下載篩選結果 CSV</button>
+      <span class="filter-count" id="filter-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>URL</th>
+            <th>平台</th>
+            <th class="num">上限</th>
+            <th>狀態</th>
+            <th class="num">結果數</th>
+            <th>建立時間</th>
+            <th>下載</th>
+          </tr>
+        </thead>
+        <tbody id="items-body"></tbody>
+      </table>
+    </div>
+    <div class="no-items" id="no-items">尚無擷取任務</div>
+  </div>
+
+  <script>
+    let pollTimer = null;
+
+    function showError(msg) {
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function clearError() {
+      document.getElementById('error-msg').style.display = 'none';
+    }
+    function fmtTime(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    async function uploadBatch() {
+      clearError();
+      const fileInput = document.getElementById('csv-file');
+      const file = fileInput.files[0];
+      if (!file) { showError('請選擇一個 CSV 檔案。'); return; }
+
+      const btn = document.getElementById('upload-btn');
+      btn.disabled = true;
+      btn.textContent = '上傳中...';
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/batch/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.detail || 'Upload failed');
+        } else {
+          loadItems();
+        }
+      } catch (e) {
+        showError('上傳失敗：' + e.message);
+      }
+      btn.disabled = false;
+      btn.textContent = '新增任務';
+      fileInput.value = '';
+    }
+
+    function getFilterParams() {
+      const params = new URLSearchParams();
+      const from = document.getElementById('date-from').value;
+      const to = document.getElementById('date-to').value;
+      if (from) params.set('date_from', from);
+      if (to) params.set('date_to', to);
+      return params;
+    }
+
+    async function loadItems() {
+      try {
+        const params = getFilterParams();
+        const res = await fetch('/api/batch/items?' + params);
+        const data = await res.json();
+        renderItems(data.items);
+      } catch (e) { /* ignore */ }
+    }
+
+    function clearFilter() {
+      document.getElementById('date-from').value = '';
+      document.getElementById('date-to').value = '';
+      loadItems();
+    }
+
+    function downloadFiltered() {
+      const params = getFilterParams();
+      window.location.href = '/api/batch/download?' + params;
+    }
+
+    function renderItems(items) {
+      const tbody = document.getElementById('items-body');
+      const noItems = document.getElementById('no-items');
+      const downloadBtn = document.getElementById('download-all-btn');
+      const filterCount = document.getElementById('filter-count');
+      tbody.innerHTML = '';
+
+      if (!items || items.length === 0) {
+        noItems.style.display = 'block';
+        downloadBtn.style.display = 'none';
+        filterCount.textContent = '';
+        stopPolling();
+        return;
+      }
+      noItems.style.display = 'none';
+
+      const doneCount = items.filter(it => it.status === 'done' && it.csv_filename).length;
+      filterCount.textContent = `共 ${items.length} 筆，${doneCount} 筆完成`;
+      downloadBtn.style.display = doneCount > 0 ? '' : 'none';
+
+      let hasActive = false;
+      items.forEach((item, i) => {
+        if (item.status === 'pending' || item.status === 'running') hasActive = true;
+        const downloadCell = item.csv_filename
+          ? `<a href="/api/download/${encodeURIComponent(item.csv_filename)}">CSV</a>`
+          : '-';
+        const errorHtml = item.error_message
+          ? `<div class="error-detail">${item.error_message}</div>`
+          : '';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${item.id}</td>
+          <td class="url-cell" title="${item.url}">${item.url}</td>
+          <td>${item.platform || '-'}</td>
+          <td class="num">${item.max_reels}</td>
+          <td><span class="badge badge-${item.status}">${item.status}</span>${errorHtml}</td>
+          <td class="num">${item.result_count || '-'}</td>
+          <td class="time-cell">${fmtTime(item.created_at)}</td>
+          <td>${downloadCell}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      if (hasActive) {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    }
+
+    function startPolling() {
+      if (!pollTimer) {
+        pollTimer = setInterval(loadItems, 2000);
+      }
+    }
+    function stopPolling() {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    // Initial load
+    loadItems();
+  </script>
+</body>
+</html>
