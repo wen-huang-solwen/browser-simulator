@@ -343,11 +343,23 @@ async def _scrape_worker() -> None:
                 platform=item["platform"] or "instagram",
             )
             await service.run_scrape(job)
-            csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
-            db.update_item_status(
-                item_id, "done",
-                csv_filename=csv_filename,
-                result_count=len(job.results),
-            )
+
+            # run_scrape swallows exceptions and puts them in progress_queue.
+            # Drain the queue to detect errors.
+            error_message = ""
+            while not job.progress_queue.empty():
+                event = job.progress_queue.get_nowait()
+                if event.get("type") == "error":
+                    error_message = event.get("message", "Unknown error")
+
+            if error_message:
+                db.update_item_status(item_id, "error", error_message=error_message[:500])
+            else:
+                csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
+                db.update_item_status(
+                    item_id, "done",
+                    csv_filename=csv_filename,
+                    result_count=len(job.results),
+                )
         except Exception as e:
             db.update_item_status(item_id, "error", error_message=str(e)[:500])
