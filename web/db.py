@@ -34,6 +34,11 @@ def init_db() -> None:
             finished_at   TEXT
         );
     """)
+    # Add logs column if missing (migration for existing databases)
+    try:
+        conn.execute("SELECT logs FROM scrape_items LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE scrape_items ADD COLUMN logs TEXT")
     conn.close()
 
 
@@ -113,7 +118,7 @@ def update_item_status(item_id: int, status: str, **kwargs) -> None:
         vals.append(datetime.now(timezone.utc).isoformat())
     elif status == "pending":
         sets.append("finished_at = NULL")
-    for key in ("error_message", "csv_filename", "result_count"):
+    for key in ("error_message", "csv_filename", "result_count", "logs"):
         if key in kwargs:
             sets.append(f"{key} = ?")
             vals.append(kwargs[key])

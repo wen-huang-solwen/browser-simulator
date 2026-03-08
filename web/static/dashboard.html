@@ -163,6 +163,46 @@
     .btn-stop:hover { background: #d97706; box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
     .filter-count { font-size: 12px; color: #888; align-self: center; }
 
+    /* Clickable running row */
+    tr.clickable { cursor: pointer; }
+    tr.clickable:hover td { background: #eef4ff; }
+
+    /* Log modal */
+    .log-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    .log-overlay.open { display: flex; }
+    .log-modal {
+      background: #1e1e1e; color: #d4d4d4;
+      border-radius: 14px; width: 700px; max-width: 92vw;
+      max-height: 80vh; display: flex; flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    .log-modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; border-bottom: 1px solid #333;
+    }
+    .log-modal-header h3 { font-size: 15px; color: #fff; font-weight: 600; }
+    .log-modal-close {
+      background: none; border: none; color: #888; font-size: 22px;
+      cursor: pointer; padding: 0 4px; line-height: 1;
+    }
+    .log-modal-close:hover { color: #fff; transform: none; box-shadow: none; }
+    .log-modal-body {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      font-size: 12px; line-height: 1.7; white-space: pre-wrap;
+      word-break: break-all; min-height: 200px;
+    }
+    .log-modal-body::-webkit-scrollbar { width: 6px; }
+    .log-modal-body::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+    .log-line { padding: 1px 0; }
+    .log-line.log-status { color: #4ec9b0; }
+    .log-line.log-progress { color: #569cd6; }
+    .log-line.log-error { color: #f44747; }
+
     /* Session status */
     .session-bar { display: flex; gap: 10px; flex-wrap: wrap; }
     .session-badge {
@@ -300,6 +340,16 @@
       </table>
     </div>
     <div class="no-items" id="no-items">尚無擷取任務</div>
+  </div>
+
+  <div class="log-overlay" id="log-overlay" onclick="if(event.target===this)closeLogModal()">
+    <div class="log-modal">
+      <div class="log-modal-header">
+        <h3 id="log-modal-title">系統日誌</h3>
+        <button class="log-modal-close" onclick="closeLogModal()">&times;</button>
+      </div>
+      <div class="log-modal-body" id="log-modal-body"></div>
+    </div>
   </div>
 
   <script>
@@ -539,7 +589,7 @@
       items.forEach((item, i) => {
         if (item.status === 'pending' || item.status === 'running') hasActive = true;
         const canDownload = item.status === 'done' && item.csv_filename;
-        const checkboxCell = `<input type="checkbox" class="item-check" value="${item.id}" data-downloadable="${canDownload ? 1 : 0}" onchange="updateActionBtns()" />`;
+        const checkboxCell = `<input type="checkbox" class="item-check" value="${item.id}" data-downloadable="${canDownload ? 1 : 0}" onchange="updateActionBtns()" onclick="event.stopPropagation()" />`;
         const downloadCell = item.csv_filename
           ? `<a href="/api/download/${encodeURIComponent(item.csv_filename)}">CSV</a>`
           : '-';
@@ -547,6 +597,11 @@
           ? `<div class="error-detail">${item.error_message}</div>`
           : '';
         const tr = document.createElement('tr');
+        if (item.status !== 'pending') {
+          tr.className = 'clickable';
+          tr.title = '點擊查看系統日誌';
+          tr.onclick = () => openLogModal(item.id, item.url);
+        }
         tr.innerHTML = `
           <td>${checkboxCell}</td>
           <td>${item.id}</td>
@@ -647,6 +702,55 @@
         statusEl.className = 'upload-status error';
       }
       fileInput.value = '';
+    }
+
+    // Log modal
+    let logEventSource = null;
+
+    function openLogModal(itemId, url) {
+      const overlay = document.getElementById('log-overlay');
+      const body = document.getElementById('log-modal-body');
+      const title = document.getElementById('log-modal-title');
+      title.textContent = `系統日誌 — #${itemId} ${url}`;
+      body.innerHTML = '';
+      overlay.classList.add('open');
+
+      logEventSource = new EventSource(`/api/batch/logs/${itemId}`);
+      logEventSource.onmessage = function(e) {
+        const event = JSON.parse(e.data);
+        if (event.type === 'done') {
+          appendLog('--- 任務完成 ---', 'log-status');
+          logEventSource.close();
+          logEventSource = null;
+          return;
+        }
+        const cls = event.type === 'status' ? 'log-status'
+                  : event.type === 'progress' ? 'log-progress'
+                  : event.type === 'error' ? 'log-error' : '';
+        const text = event.message || (event.type === 'progress' ? `Scroll ${event.scroll}: found ${event.found} total` : JSON.stringify(event));
+        appendLog(text, cls);
+      };
+      logEventSource.onerror = function() {
+        logEventSource.close();
+        logEventSource = null;
+      };
+    }
+
+    function appendLog(text, cls) {
+      const body = document.getElementById('log-modal-body');
+      const div = document.createElement('div');
+      div.className = 'log-line' + (cls ? ' ' + cls : '');
+      div.textContent = text;
+      body.appendChild(div);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function closeLogModal() {
+      document.getElementById('log-overlay').classList.remove('open');
+      if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+      }
     }
 
     // Initial load

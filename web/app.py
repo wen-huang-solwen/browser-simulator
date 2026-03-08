@@ -31,6 +31,8 @@ _scrape_queue: asyncio.Queue | None = None
 _scrape_worker_task: asyncio.Task | None = None
 _current_scrape_task: asyncio.Task | None = None
 _current_scrape_item_id: int | None = None
+_current_logs: list[dict] = []
+_log_subscribers: list[asyncio.Queue] = []
 
 
 @asynccontextmanager
@@ -396,6 +398,57 @@ async def batch_rerun(ids: list[int]):
     return {"requeued": requeued}
 
 
+@app.get("/api/batch/logs/{item_id}")
+async def batch_logs(item_id: int):
+    """Stream logs for a scrape item via SSE (running) or return saved logs (completed)."""
+    # Currently running — stream live
+    if _current_scrape_item_id == item_id:
+        sub: asyncio.Queue = asyncio.Queue(maxsize=200)
+        _log_subscribers.append(sub)
+
+        async def live_generator():
+            try:
+                for event in list(_current_logs):
+                    yield f"data: {json.dumps(event)}\n\n"
+                while True:
+                    event = await sub.get()
+                    if event.get("type") == "done":
+                        yield f"data: {json.dumps(event)}\n\n"
+                        break
+                    yield f"data: {json.dumps(event)}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if sub in _log_subscribers:
+                    _log_subscribers.remove(sub)
+
+        return StreamingResponse(
+            live_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Completed / error — return saved logs from DB
+    item = db.get_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item["status"] in ("pending",):
+        raise HTTPException(status_code=404, detail="Item has not started yet")
+
+    saved_logs = json.loads(item.get("logs") or "[]")
+
+    async def saved_generator():
+        for event in saved_logs:
+            yield f"data: {json.dumps(event)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        saved_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/batch/stop")
 async def batch_stop():
     """Stop the currently running scrape."""
@@ -406,15 +459,41 @@ async def batch_stop():
     raise HTTPException(status_code=404, detail="No scrape is currently running")
 
 
+async def _drain_progress(job: ScrapeJob) -> str:
+    """Drain progress_queue in real-time, store logs and broadcast to subscribers.
+
+    Returns error message if any, empty string otherwise.
+    """
+    error_message = ""
+    while True:
+        event = await job.progress_queue.get()
+        if event.get("type") == "done":
+            # Broadcast done to subscribers
+            for sub in _log_subscribers:
+                sub.put_nowait(event)
+            break
+        if event.get("type") == "error":
+            error_message = event.get("message", "Unknown error")
+        _current_logs.append(event)
+        for sub in _log_subscribers:
+            try:
+                sub.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+    return error_message
+
+
 async def _scrape_worker() -> None:
     """Background worker that processes scrape items one at a time."""
-    global _current_scrape_task, _current_scrape_item_id
+    global _current_scrape_task, _current_scrape_item_id, _current_logs, _log_subscribers
     while True:
         item_id = await _scrape_queue.get()
         item = db.get_item(item_id)
         if not item or item["status"] in ("done", "error"):
             continue
         _current_scrape_item_id = item_id
+        _current_logs = []
+        _log_subscribers = []
         db.update_item_status(item_id, "running")
         try:
             job = ScrapeJob(
@@ -423,31 +502,29 @@ async def _scrape_worker() -> None:
                 platform=item["platform"] or "instagram",
             )
             _current_scrape_task = asyncio.create_task(service.run_scrape(job))
+            drain_task = asyncio.create_task(_drain_progress(job))
             await _current_scrape_task
+            error_message = await drain_task
 
-            # run_scrape swallows exceptions and puts them in progress_queue.
-            # Drain the queue to detect errors.
-            error_message = ""
-            while not job.progress_queue.empty():
-                event = job.progress_queue.get_nowait()
-                if event.get("type") == "error":
-                    error_message = event.get("message", "Unknown error")
-
+            logs_json = json.dumps(_current_logs)
             if error_message:
-                db.update_item_status(item_id, "error", error_message=error_message[:500])
+                db.update_item_status(item_id, "error", error_message=error_message[:500], logs=logs_json)
             else:
                 csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
                 db.update_item_status(
                     item_id, "done",
                     csv_filename=csv_filename,
                     result_count=len(job.results),
+                    logs=logs_json,
                 )
         except asyncio.CancelledError:
+            logs_json = json.dumps(_current_logs)
             # Re-check if item was deleted or just stopped
             if db.get_item(item_id):
-                db.update_item_status(item_id, "error", error_message="Stopped by user")
+                db.update_item_status(item_id, "error", error_message="Stopped by user", logs=logs_json)
         except Exception as e:
-            db.update_item_status(item_id, "error", error_message=str(e)[:500])
+            logs_json = json.dumps(_current_logs)
+            db.update_item_status(item_id, "error", error_message=str(e)[:500], logs=logs_json)
         finally:
             _current_scrape_item_id = None
             _current_scrape_task = None
