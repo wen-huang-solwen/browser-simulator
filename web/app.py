@@ -238,12 +238,12 @@ async def api_scrape(
     )
 
 
-# ── Batch / Dashboard ───────────────────────────────────────────────────
+# ── Dashboard ───────────────────────────────────────────────────────────
 
 
-@app.get("/batch", response_class=HTMLResponse)
-async def batch_page():
-    path = os.path.join(STATIC_DIR, "batch.html")
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    path = os.path.join(STATIC_DIR, "dashboard.html")
     with open(path, encoding="utf-8") as f:
         return HTMLResponse(f.read())
 
@@ -294,30 +294,32 @@ async def batch_items(
     return {"items": db.list_items(date_from=date_from, date_to=date_to)}
 
 
-@app.get("/api/batch/download")
-async def batch_download_filtered(
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-):
-    """Download a merged CSV of all completed scrapes matching the filter."""
-    items = db.list_items(date_from=date_from, date_to=date_to)
-    done_items = [it for it in items if it["status"] == "done" and it["csv_filename"]]
-    if not done_items:
-        raise HTTPException(status_code=404, detail="No completed scrapes to download")
+@app.post("/api/batch/download")
+async def batch_download_selected(ids: list[int]):
+    """Download a merged CSV for the given item IDs."""
+    if not ids:
+        raise HTTPException(status_code=400, detail="No items selected")
 
-    # Read and merge all individual CSVs
-    buf = io.StringIO()
     from output.exporter import CSV_FIELDS
+    buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=CSV_FIELDS, extrasaction="ignore")
     writer.writeheader()
-    for it in done_items:
-        filepath = os.path.join(DATA_DIR, it["csv_filename"])
+    found = False
+    for item_id in ids:
+        item = db.get_item(item_id)
+        if not item or item["status"] != "done" or not item.get("csv_filename"):
+            continue
+        filepath = os.path.join(DATA_DIR, item["csv_filename"])
         if not os.path.isfile(filepath):
             continue
+        found = True
         with open(filepath, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 writer.writerow(row)
+
+    if not found:
+        raise HTTPException(status_code=404, detail="No completed scrapes to download")
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"scrapes_{ts}.csv"

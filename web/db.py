@@ -64,9 +64,8 @@ def list_items(date_from: str | None = None, date_to: str | None = None) -> list
         conditions.append("created_at >= ?")
         params.append(date_from)
     if date_to:
-        # date_to is a date like '2026-03-08', make it inclusive of the whole day
-        conditions.append("created_at < ?")
-        params.append(date_to + "T99")  # sorts after any time on that date
+        conditions.append("created_at <= ?")
+        params.append(date_to)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY id DESC"

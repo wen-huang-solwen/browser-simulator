@@ -124,14 +124,14 @@
     }
     .filter-row .form-group { display: flex; flex-direction: column; }
     .filter-row label { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 4px; }
-    .filter-row input[type="date"] {
+    .filter-row input[type="datetime-local"] {
       padding: 8px 12px;
       border: 1.5px solid #e0e0e0;
       border-radius: 8px;
       font-size: 13px;
       background: #fafafa;
     }
-    .filter-row input[type="date"]:focus {
+    .filter-row input[type="datetime-local"]:focus {
       outline: none; border-color: #0095f6;
       box-shadow: 0 0 0 3px rgba(0,149,246,0.1); background: white;
     }
@@ -151,6 +151,54 @@
     }
     .btn-outline:hover { background: #f5f5f5; box-shadow: none; transform: none; }
     .filter-count { font-size: 12px; color: #888; align-self: center; }
+
+    /* Session status */
+    .session-bar { display: flex; gap: 10px; flex-wrap: wrap; }
+    .session-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 8px;
+      font-size: 13px; font-weight: 600;
+      background: #f0f0f0; color: #888;
+    }
+    .session-badge.active { background: #e6f9ec; color: #16a34a; }
+    .session-badge.expired { background: #fef2f2; color: #dc2626; }
+    .session-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #ccc;
+    }
+    .session-badge.active .dot { background: #16a34a; }
+    .session-badge.expired .dot { background: #dc2626; }
+    .session-expiry { font-size: 11px; color: #aaa; font-weight: 400; }
+    .session-badge.expired .session-expiry { color: #dc2626; }
+
+    /* Session upload */
+    .session-upload {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .session-upload select {
+      padding: 8px 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      background: #fafafa;
+    }
+    .session-upload label.file-btn {
+      padding: 8px 18px;
+      background: linear-gradient(135deg, #0095f6, #0077e6);
+      color: white;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    .session-upload label.file-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,149,246,0.3);
+    }
+    .session-upload .upload-status { font-size: 12px; color: #888; }
+    .session-upload .upload-status.success { color: #16a34a; }
+    .session-upload .upload-status.error { color: #dc2626; }
   </style>
 </head>
 <body>
@@ -162,6 +210,22 @@
       <p>上傳 CSV 批次新增擷取任務，即時查看每筆擷取進度</p>
     </div>
     <a href="/" class="nav-link">&#8592; 單筆擷取</a>
+  </div>
+
+  <div class="card">
+    <label class="form-label">Session 狀態</label>
+    <div class="session-bar" id="session-bar"></div>
+    <div class="session-upload">
+      <select id="upload-platform">
+        <option value="instagram">Instagram</option>
+        <option value="facebook">Facebook</option>
+      </select>
+      <label class="file-btn">
+        上傳 Session 檔案
+        <input type="file" id="session-file" accept=".json" style="display:none" onchange="uploadSession()" />
+      </label>
+      <span class="upload-status" id="upload-status"></span>
+    </div>
   </div>
 
   <div class="card">
@@ -184,21 +248,22 @@
     <label class="form-label">擷取任務</label>
     <div class="filter-row">
       <div class="form-group">
-        <label for="date-from">開始日期</label>
-        <input type="date" id="date-from" onchange="loadItems()" />
+        <label for="date-from">開始時間</label>
+        <input type="datetime-local" id="date-from" onchange="loadItems()" />
       </div>
       <div class="form-group">
-        <label for="date-to">結束日期</label>
-        <input type="date" id="date-to" onchange="loadItems()" />
+        <label for="date-to">結束時間</label>
+        <input type="datetime-local" id="date-to" onchange="loadItems()" />
       </div>
       <button class="btn-sm btn-outline" onclick="clearFilter()">清除篩選</button>
-      <button class="btn-sm btn-download" id="download-all-btn" onclick="downloadFiltered()" style="display:none;">下載篩選結果 CSV</button>
+      <button class="btn-sm btn-download" id="download-sel-btn" onclick="downloadSelected()" style="display:none;">下載已選 CSV</button>
       <span class="filter-count" id="filter-count"></span>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll()" /></th>
             <th>#</th>
             <th>URL</th>
             <th>平台</th>
@@ -265,8 +330,8 @@
       const params = new URLSearchParams();
       const from = document.getElementById('date-from').value;
       const to = document.getElementById('date-to').value;
-      if (from) params.set('date_from', from);
-      if (to) params.set('date_to', to);
+      if (from) params.set('date_from', new Date(from).toISOString());
+      if (to) params.set('date_to', new Date(to).toISOString());
       return params;
     }
 
@@ -285,21 +350,63 @@
       loadItems();
     }
 
-    function downloadFiltered() {
-      const params = getFilterParams();
-      window.location.href = '/api/batch/download?' + params;
+    function getSelectedIds() {
+      return Array.from(document.querySelectorAll('.item-check:checked')).map(cb => parseInt(cb.value));
+    }
+
+    function updateDownloadBtn() {
+      const ids = getSelectedIds();
+      const btn = document.getElementById('download-sel-btn');
+      if (ids.length > 0) {
+        btn.style.display = '';
+        btn.textContent = `下載已選 CSV (${ids.length})`;
+      } else {
+        btn.style.display = 'none';
+      }
+    }
+
+    function toggleSelectAll() {
+      const checked = document.getElementById('select-all').checked;
+      document.querySelectorAll('.item-check').forEach(cb => { cb.checked = checked; });
+      updateDownloadBtn();
+    }
+
+    async function downloadSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      try {
+        const res = await fetch('/api/batch/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ids),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          showError(data.detail || 'Download failed');
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.headers.get('content-disposition')?.match(/filename="(.+)"/)?.[1] || 'scrapes.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        showError('下載失敗：' + e.message);
+      }
     }
 
     function renderItems(items) {
       const tbody = document.getElementById('items-body');
       const noItems = document.getElementById('no-items');
-      const downloadBtn = document.getElementById('download-all-btn');
       const filterCount = document.getElementById('filter-count');
       tbody.innerHTML = '';
+      document.getElementById('select-all').checked = false;
 
       if (!items || items.length === 0) {
         noItems.style.display = 'block';
-        downloadBtn.style.display = 'none';
+        document.getElementById('download-sel-btn').style.display = 'none';
         filterCount.textContent = '';
         stopPolling();
         return;
@@ -308,11 +415,14 @@
 
       const doneCount = items.filter(it => it.status === 'done' && it.csv_filename).length;
       filterCount.textContent = `共 ${items.length} 筆，${doneCount} 筆完成`;
-      downloadBtn.style.display = doneCount > 0 ? '' : 'none';
 
       let hasActive = false;
       items.forEach((item, i) => {
         if (item.status === 'pending' || item.status === 'running') hasActive = true;
+        const canSelect = item.status === 'done' && item.csv_filename;
+        const checkboxCell = canSelect
+          ? `<input type="checkbox" class="item-check" value="${item.id}" onchange="updateDownloadBtn()" />`
+          : '';
         const downloadCell = item.csv_filename
           ? `<a href="/api/download/${encodeURIComponent(item.csv_filename)}">CSV</a>`
           : '-';
@@ -321,6 +431,7 @@
           : '';
         const tr = document.createElement('tr');
         tr.innerHTML = `
+          <td>${checkboxCell}</td>
           <td>${item.id}</td>
           <td class="url-cell" title="${item.url}">${item.url}</td>
           <td>${item.platform || '-'}</td>
@@ -333,6 +444,7 @@
         tbody.appendChild(tr);
       });
 
+      updateDownloadBtn();
       if (hasActive) {
         startPolling();
       } else {
@@ -352,7 +464,75 @@
       }
     }
 
+    // Session status
+    async function loadSessionStatus() {
+      try {
+        const res = await fetch('/api/session/status');
+        const data = await res.json();
+        renderSessions(data);
+      } catch (e) { /* ignore */ }
+    }
+
+    function renderSessions(data) {
+      const bar = document.getElementById('session-bar');
+      const platforms = ['instagram', 'facebook'];
+      const labels = { instagram: 'Instagram', facebook: 'Facebook' };
+      bar.innerHTML = '';
+      for (const p of platforms) {
+        const active = data[p];
+        const expiry = data.expires && data.expires[p];
+        const now = new Date();
+        const isExpired = expiry && new Date(expiry) < now;
+        let cls = 'session-badge';
+        if (active && !isExpired) cls += ' active';
+        else if (isExpired) cls += ' expired';
+        let expiryHtml = '';
+        if (expiry) {
+          const d = new Date(expiry);
+          const label = isExpired ? '已過期' : '到期';
+          expiryHtml = `<span class="session-expiry">${label} ${d.toLocaleDateString('zh-TW')}</span>`;
+        } else if (!active) {
+          expiryHtml = '<span class="session-expiry">未設定</span>';
+        }
+        bar.innerHTML += `<span class="${cls}"><span class="dot"></span>${labels[p]} ${expiryHtml}</span>`;
+      }
+    }
+
+    async function uploadSession() {
+      const fileInput = document.getElementById('session-file');
+      const platform = document.getElementById('upload-platform').value;
+      const statusEl = document.getElementById('upload-status');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      statusEl.textContent = '上傳中...';
+      statusEl.className = 'upload-status';
+
+      const formData = new FormData();
+      formData.append('platform', platform);
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/session/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+          statusEl.textContent = label + ' session 上傳成功！';
+          statusEl.className = 'upload-status success';
+          loadSessionStatus();
+        } else {
+          statusEl.textContent = data.detail || '上傳失敗';
+          statusEl.className = 'upload-status error';
+        }
+      } catch (e) {
+        statusEl.textContent = '上傳失敗：' + e.message;
+        statusEl.className = 'upload-status error';
+      }
+      fileInput.value = '';
+    }
+
     // Initial load
+    loadSessionStatus();
     loadItems();
   </script>
 </body>
