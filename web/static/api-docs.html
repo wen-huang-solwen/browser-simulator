@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reels Scraper API Documentation</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      background: #f8f9fa;
+      color: #1a1a2e;
+      line-height: 1.6;
+    }
+
+    /* Header */
+    .header {
+      margin-bottom: 40px;
+      padding-bottom: 24px;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: #555;
+      font-size: 15px;
+    }
+    .base-url {
+      display: inline-block;
+      margin-top: 12px;
+      background: #1a1a2e;
+      color: #a5d6ff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 14px;
+    }
+
+    /* Nav */
+    .nav {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 36px;
+      flex-wrap: wrap;
+    }
+    .nav a {
+      padding: 8px 16px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      color: #1a1a2e;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .nav a:hover {
+      background: #1a1a2e;
+      color: #fff;
+      border-color: #1a1a2e;
+    }
+
+    /* Endpoint */
+    .endpoint {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      margin-bottom: 28px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .endpoint-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+    }
+    .method {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+    }
+    .method-post { background: #dbeafe; color: #1d4ed8; }
+    .method-get { background: #d1fae5; color: #065f46; }
+    .endpoint-path {
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .endpoint-desc {
+      color: #666;
+      font-size: 13px;
+      margin-left: auto;
+    }
+    .endpoint-body {
+      padding: 24px;
+    }
+    .endpoint-body h3 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 12px;
+      margin-top: 24px;
+    }
+    .endpoint-body h3:first-child { margin-top: 0; }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      border-bottom: 2px solid #e0e0e0;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #666;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: top;
+    }
+    td:first-child {
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-weight: 600;
+      white-space: nowrap;
+      color: #1a1a2e;
+    }
+    .required {
+      display: inline-block;
+      background: #fee2e2;
+      color: #dc2626;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .optional {
+      display: inline-block;
+      background: #e0f2fe;
+      color: #0284c7;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .type-badge {
+      display: inline-block;
+      background: #f3f4f6;
+      color: #6b7280;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+
+    /* Code blocks */
+    pre {
+      background: #1a1a2e;
+      color: #e2e8f0;
+      padding: 18px 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      margin-top: 8px;
+    }
+    pre .comment { color: #6b7280; }
+    pre .string { color: #a5d6ff; }
+    pre .flag { color: #c4b5fd; }
+    pre .url { color: #86efac; }
+
+    code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    /* Response example */
+    .response-csv {
+      background: #fefce8;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.8;
+    }
+
+    /* Status codes */
+    .status-table td:first-child {
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+      font-weight: 700;
+    }
+    .status-200 { color: #16a34a; }
+    .status-400 { color: #ea580c; }
+    .status-404 { color: #dc2626; }
+    .status-422 { color: #9333ea; }
+
+    /* Notes */
+    .note {
+      background: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 14px 18px;
+      border-radius: 0 8px 8px 0;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #1e40af;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid #e0e0e0;
+      color: #999;
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>Reels Scraper API</h1>
+    <p>Scrape video metadata (views, likes, comments) from Instagram, Facebook, TikTok, and YouTube profiles.</p>
+    <div class="base-url">Base URL: http://your-server:8000</div>
+  </div>
+
+  <nav class="nav">
+    <a href="#scrape">Scrape Videos</a>
+    <a href="#session-status">Session Status</a>
+    <a href="#session-upload">Upload Session</a>
+    <a href="#download">Download CSV</a>
+    <a href="#errors">Error Handling</a>
+  </nav>
+
+  <!-- POST /api/v1/scrape -->
+  <section id="scrape" class="endpoint">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="endpoint-path">/api/v1/scrape</span>
+      <span class="endpoint-desc">Scrape videos and return CSV</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Scrape video/reel metadata from a social media profile and return results as a downloadable CSV file. The platform is auto-detected from the URL.</p>
+
+      <h3>Request</h3>
+      <p>Content-Type: <code>multipart/form-data</code></p>
+
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>profile_link <span class="required">required</span></td>
+            <td><span class="type-badge">string</span></td>
+            <td>Profile URL or username. Supported formats:
+              <br><code>https://www.instagram.com/username/reels/</code>
+              <br><code>https://www.facebook.com/pagename/reels/</code>
+              <br><code>https://www.tiktok.com/@username</code>
+              <br><code>https://www.youtube.com/@username</code>
+              <br><code>@username</code> (defaults to Instagram)
+            </td>
+          </tr>
+          <tr>
+            <td>max_reels <span class="optional">optional</span></td>
+            <td><span class="type-badge">integer</span></td>
+            <td>Maximum number of videos to scrape. Range: 1&ndash;9999. Default: <code>50</code></td>
+          </tr>
+          <tr>
+            <td>auth_file <span class="optional">optional</span></td>
+            <td><span class="type-badge">file</span></td>
+            <td>Playwright session JSON file for authentication. Required for private profiles or to avoid login prompts. Max size: 5 MB.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Response</h3>
+      <p>Returns a CSV file download with the following columns:</p>
+
+      <table>
+        <thead>
+          <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>link</td><td><span class="type-badge">string</span></td><td>Full URL to the video/reel</td></tr>
+          <tr><td>id</td><td><span class="type-badge">string</span></td><td>Video shortcode / unique identifier</td></tr>
+          <tr><td>views</td><td><span class="type-badge">integer</span></td><td>View count (may be empty if unavailable)</td></tr>
+          <tr><td>likes</td><td><span class="type-badge">integer</span></td><td>Like count (may be empty if unavailable)</td></tr>
+          <tr><td>comments</td><td><span class="type-badge">integer</span></td><td>Comment count (may be empty if unavailable)</td></tr>
+          <tr><td>scraped_at</td><td><span class="type-badge">ISO 8601</span></td><td>UTC timestamp when the data was scraped</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Example: curl</h3>
+      <pre><span class="comment"># Basic scrape (no auth)</span>
+curl <span class="flag">-X</span> POST <span class="url">http://localhost:8000/api/v1/scrape</span> \
+  <span class="flag">-F</span> <span class="string">"profile_link=https://www.instagram.com/halei.lawyer/reels/"</span> \
+  <span class="flag">-F</span> <span class="string">"max_reels=20"</span> \
+  <span class="flag">-o</span> results.csv
+
+<span class="comment"># With authentication file</span>
+curl <span class="flag">-X</span> POST <span class="url">http://localhost:8000/api/v1/scrape</span> \
+  <span class="flag">-F</span> <span class="string">"profile_link=https://www.instagram.com/halei.lawyer/reels/"</span> \
+  <span class="flag">-F</span> <span class="string">"max_reels=10"</span> \
+  <span class="flag">-F</span> <span class="string">"auth_file=@session.json"</span> \
+  <span class="flag">-o</span> results.csv</pre>
+
+      <h3>Example: Python</h3>
+      <pre><span class="comment"># pip install requests</span>
+import requests
+
+resp = requests.post(
+    <span class="string">"http://localhost:8000/api/v1/scrape"</span>,
+    data={
+        <span class="string">"profile_link"</span>: <span class="string">"https://www.instagram.com/halei.lawyer/reels/"</span>,
+        <span class="string">"max_reels"</span>: <span class="string">"20"</span>,
+    },
+)
+
+with open(<span class="string">"results.csv"</span>, <span class="string">"wb"</span>) as f:
+    f.write(resp.content)
+
+<span class="comment"># With auth file</span>
+resp = requests.post(
+    <span class="string">"http://localhost:8000/api/v1/scrape"</span>,
+    data={
+        <span class="string">"profile_link"</span>: <span class="string">"https://www.instagram.com/halei.lawyer/reels/"</span>,
+        <span class="string">"max_reels"</span>: <span class="string">"10"</span>,
+    },
+    files={
+        <span class="string">"auth_file"</span>: open(<span class="string">"session.json"</span>, <span class="string">"rb"</span>),
+    },
+)</pre>
+
+      <h3>Example: JavaScript (fetch)</h3>
+      <pre>const form = new FormData();
+form.append(<span class="string">"profile_link"</span>, <span class="string">"https://www.instagram.com/halei.lawyer/reels/"</span>);
+form.append(<span class="string">"max_reels"</span>, <span class="string">"20"</span>);
+
+const resp = await fetch(<span class="string">"http://localhost:8000/api/v1/scrape"</span>, {
+  method: <span class="string">"POST"</span>,
+  body: form,
+});
+
+const blob = await resp.blob();
+const url = URL.createObjectURL(blob);
+const a = document.createElement(<span class="string">"a"</span>);
+a.href = url;
+a.download = <span class="string">"results.csv"</span>;
+a.click();</pre>
+
+      <h3>Example Response (CSV)</h3>
+      <div class="response-csv">link,id,views,likes,comments,scraped_at
+https://www.instagram.com/halei.lawyer/reel/C9Mm34isa5T/,C9Mm34isa5T,1400000,44300,254,2026-03-08T08:02:33.919367+00:00
+https://www.instagram.com/halei.lawyer/reel/C5DZB_NqthG/,C5DZB_NqthG,1100000,61400,382,2026-03-08T08:02:33.919367+00:00
+https://www.instagram.com/halei.lawyer/reel/DVIrzNLIDiJ/,DVIrzNLIDiJ,11100,168,0,2026-03-08T08:02:33.919367+00:00</div>
+
+      <div class="note">
+        <strong>Note:</strong> Scraping may take 5&ndash;60 seconds depending on the number of videos and platform. The request will block until scraping completes. For Instagram and Facebook, a valid session file is required.
+      </div>
+    </div>
+  </section>
+
+  <!-- GET /api/session/status -->
+  <section id="session-status" class="endpoint">
+    <div class="endpoint-header">
+      <span class="method method-get">GET</span>
+      <span class="endpoint-path">/api/session/status</span>
+      <span class="endpoint-desc">Check authentication status</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Returns whether saved session files exist for each platform.</p>
+
+      <h3>Example Request</h3>
+      <pre>curl <span class="url">http://localhost:8000/api/session/status</span></pre>
+
+      <h3>Example Response</h3>
+      <pre>{
+  <span class="string">"instagram"</span>: true,
+  <span class="string">"facebook"</span>: false,
+  <span class="string">"tiktok"</span>: false
+}</pre>
+    </div>
+  </section>
+
+  <!-- POST /api/session/upload -->
+  <section id="session-upload" class="endpoint">
+    <div class="endpoint-header">
+      <span class="method method-post">POST</span>
+      <span class="endpoint-path">/api/session/upload</span>
+      <span class="endpoint-desc">Upload a session file</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Upload a Playwright session JSON file for a specific platform. The server will restart its browser context to use the new session.</p>
+
+      <h3>Request</h3>
+      <p>Content-Type: <code>multipart/form-data</code></p>
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>platform <span class="required">required</span></td>
+            <td><span class="type-badge">string</span></td>
+            <td>One of: <code>instagram</code>, <code>facebook</code>, <code>tiktok</code></td>
+          </tr>
+          <tr>
+            <td>file <span class="required">required</span></td>
+            <td><span class="type-badge">file</span></td>
+            <td>Playwright session JSON file (must contain a <code>cookies</code> key). Max: 5 MB.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Example</h3>
+      <pre>curl <span class="flag">-X</span> POST <span class="url">http://localhost:8000/api/session/upload</span> \
+  <span class="flag">-F</span> <span class="string">"platform=instagram"</span> \
+  <span class="flag">-F</span> <span class="string">"file=@.auth/session.json"</span></pre>
+
+      <h3>Example Response</h3>
+      <pre>{
+  <span class="string">"ok"</span>: true,
+  <span class="string">"status"</span>: {
+    <span class="string">"instagram"</span>: true,
+    <span class="string">"facebook"</span>: false,
+    <span class="string">"tiktok"</span>: false
+  }
+}</pre>
+    </div>
+  </section>
+
+  <!-- GET /api/download/{filename} -->
+  <section id="download" class="endpoint">
+    <div class="endpoint-header">
+      <span class="method method-get">GET</span>
+      <span class="endpoint-path">/api/download/{filename}</span>
+      <span class="endpoint-desc">Download a previously saved CSV</span>
+    </div>
+    <div class="endpoint-body">
+      <p>Download a CSV file that was previously generated by the web UI scrape. The filename is returned in the SSE scrape results.</p>
+
+      <h3>Path Parameters</h3>
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>filename <span class="required">required</span></td>
+            <td><span class="type-badge">string</span></td>
+            <td>CSV filename (e.g. <code>halei.lawyer_reels_20260308_080233.csv</code>)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Example</h3>
+      <pre>curl <span class="flag">-O</span> <span class="url">http://localhost:8000/api/download/halei.lawyer_reels_20260308_080233.csv</span></pre>
+    </div>
+  </section>
+
+  <!-- Errors -->
+  <section id="errors" class="endpoint">
+    <div class="endpoint-header">
+      <span class="endpoint-path">Error Handling</span>
+    </div>
+    <div class="endpoint-body">
+      <p>All error responses return JSON with a <code>detail</code> field:</p>
+      <pre>{ <span class="string">"detail"</span>: <span class="string">"Cannot parse username from: !!!invalid!!!"</span> }</pre>
+
+      <h3>Status Codes</h3>
+      <table class="status-table">
+        <thead>
+          <tr><th>Code</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="status-200">200</td><td>Success. CSV file returned (for scrape) or JSON returned (for other endpoints).</td></tr>
+          <tr><td class="status-400">400</td><td>Bad request. Invalid profile link, invalid auth file, or invalid platform.</td></tr>
+          <tr><td class="status-404">404</td><td>Not found. No videos/reels found for the profile, or download file does not exist.</td></tr>
+          <tr><td class="status-422">422</td><td>Validation error. Missing required fields or parameter out of range.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="footer">
+    Reels Scraper API &mdash; <a href="/" style="color:#666;">Back to Web UI</a>
+  </footer>
+
+</body>
+</html>
