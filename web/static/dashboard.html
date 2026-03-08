@@ -44,6 +44,11 @@
     .form-hint { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.6; }
     .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 
+    input[type="text"], input[type="number"] {
+      padding: 9px 12px; border: 1px solid #ddd; border-radius: 8px;
+      font-size: 14px; width: 100%; outline: none; transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, input[type="number"]:focus { border-color: #0095f6; }
     input[type="file"] { font-size: 13px; }
     button {
       padding: 10px 28px;
@@ -150,6 +155,12 @@
       border: 1.5px solid #e0e0e0;
     }
     .btn-outline:hover { background: #f5f5f5; box-shadow: none; transform: none; }
+    .btn-danger { background: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; box-shadow: 0 4px 12px rgba(220,38,38,0.3); }
+    .btn-rerun { background: #8b5cf6; }
+    .btn-rerun:hover { background: #7c3aed; box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+    .btn-stop { background: #f59e0b; }
+    .btn-stop:hover { background: #d97706; box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
     .filter-count { font-size: 12px; color: #888; align-self: center; }
 
     /* Session status */
@@ -229,16 +240,24 @@
   </div>
 
   <div class="card">
-    <label class="form-label">上傳 CSV 檔案</label>
+    <label class="form-label">新增擷取</label>
     <div class="form-row">
+      <div class="form-group" style="flex:1;min-width:200px;">
+        <input type="text" id="add-url" placeholder="輸入網址，例如 https://www.instagram.com/username/reels/" />
+      </div>
+      <div class="form-group">
+        <input type="number" id="add-max" value="50" min="1" max="9999" style="width:90px;" />
+      </div>
+      <button class="btn-sm" onclick="addSingle()">新增</button>
+    </div>
+    <div class="form-hint" style="margin-top:12px;">
+      或上傳 CSV 批次新增：欄位為 <code>url</code>（必填）和 <code>max_reels</code>（選填）。最多 100 筆。
+    </div>
+    <div class="form-row" style="margin-top:8px;">
       <div>
         <input type="file" id="csv-file" accept=".csv" />
       </div>
-      <button id="upload-btn" onclick="uploadBatch()">新增任務</button>
-    </div>
-    <div class="form-hint">
-      CSV 格式：欄位為 <code>url</code>（必填）和 <code>max_reels</code>（選填，預設 50）。最多 100 筆。<br>
-      範例：<code>url,max_reels</code> / <code>https://www.instagram.com/halei.lawyer/reels/,5</code>
+      <button class="btn-sm btn-outline" id="upload-btn" onclick="uploadBatch()">上傳 CSV</button>
     </div>
   </div>
 
@@ -257,6 +276,9 @@
       </div>
       <button class="btn-sm btn-outline" onclick="clearFilter()">清除篩選</button>
       <button class="btn-sm btn-download" id="download-sel-btn" onclick="downloadSelected()" style="display:none;">下載已選 CSV</button>
+      <button class="btn-sm btn-rerun" id="rerun-sel-btn" onclick="rerunSelected()" style="display:none;">重新擷取</button>
+      <button class="btn-sm btn-danger" id="delete-sel-btn" onclick="deleteSelected()" style="display:none;">刪除已選</button>
+      <button class="btn-sm btn-stop" id="stop-btn" onclick="stopRunning()" style="display:none;">停止擷取</button>
       <span class="filter-count" id="filter-count"></span>
     </div>
     <div class="table-wrap">
@@ -295,6 +317,31 @@
       if (!iso) return '-';
       const d = new Date(iso);
       return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    async function addSingle() {
+      clearError();
+      const urlInput = document.getElementById('add-url');
+      const maxInput = document.getElementById('add-max');
+      const url = urlInput.value.trim();
+      if (!url) { showError('請輸入網址。'); return; }
+
+      const formData = new FormData();
+      formData.append('url', url);
+      formData.append('max_reels', maxInput.value || '50');
+
+      try {
+        const res = await fetch('/api/batch/add', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.detail || '新增失敗');
+        } else {
+          urlInput.value = '';
+          loadItems();
+        }
+      } catch (e) {
+        showError('新增失敗：' + e.message);
+      }
     }
 
     async function uploadBatch() {
@@ -354,16 +401,34 @@
       return Array.from(document.querySelectorAll('.item-check:checked')).map(cb => parseInt(cb.value));
     }
 
-    function updateDownloadBtn() {
-      const ids = getSelectedIds();
-      const btn = document.getElementById('download-sel-btn');
-      if (ids.length > 0) {
-        btn.style.display = '';
-        btn.textContent = `下載已選 CSV (${ids.length})`;
+    function updateActionBtns() {
+      const checked = document.querySelectorAll('.item-check:checked');
+      const ids = Array.from(checked).map(cb => parseInt(cb.value));
+      const downloadableIds = Array.from(checked).filter(cb => cb.dataset.downloadable === '1').map(cb => parseInt(cb.value));
+
+      const downloadBtn = document.getElementById('download-sel-btn');
+      const deleteBtn = document.getElementById('delete-sel-btn');
+      const rerunBtn = document.getElementById('rerun-sel-btn');
+
+      if (downloadableIds.length > 0) {
+        downloadBtn.style.display = '';
+        downloadBtn.textContent = `下載已選 CSV (${downloadableIds.length})`;
       } else {
-        btn.style.display = 'none';
+        downloadBtn.style.display = 'none';
+      }
+
+      if (ids.length > 0) {
+        deleteBtn.style.display = '';
+        deleteBtn.textContent = `刪除已選 (${ids.length})`;
+        rerunBtn.style.display = '';
+        rerunBtn.textContent = `重新擷取 (${ids.length})`;
+      } else {
+        deleteBtn.style.display = 'none';
+        rerunBtn.style.display = 'none';
       }
     }
+    // Keep old name as alias
+    function updateDownloadBtn() { updateActionBtns(); }
 
     function toggleSelectAll() {
       const checked = document.getElementById('select-all').checked;
@@ -397,6 +462,60 @@
       }
     }
 
+    async function deleteSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      if (!confirm(`確定要刪除 ${ids.length} 筆擷取任務？`)) return;
+      try {
+        const res = await fetch('/api/batch/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ids),
+        });
+        if (res.ok) loadItems();
+        else {
+          const data = await res.json();
+          showError(data.detail || 'Delete failed');
+        }
+      } catch (e) {
+        showError('刪除失敗：' + e.message);
+      }
+    }
+
+    async function rerunSelected() {
+      const ids = getSelectedIds();
+      if (ids.length === 0) return;
+      if (!confirm(`確定要重新擷取 ${ids.length} 筆任務？`)) return;
+      try {
+        const res = await fetch('/api/batch/rerun', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ids),
+        });
+        if (res.ok) loadItems();
+        else {
+          const data = await res.json();
+          showError(data.detail || 'Rerun failed');
+        }
+      } catch (e) {
+        showError('重新擷取失敗：' + e.message);
+      }
+    }
+
+    async function stopRunning() {
+      try {
+        const res = await fetch('/api/batch/stop', { method: 'POST' });
+        if (res.ok) {
+          loadItems();
+        } else {
+          const data = await res.json();
+          showError(data.detail || 'Stop failed');
+        }
+      } catch (e) {
+        showError('停止失敗：' + e.message);
+      }
+    }
+
     function renderItems(items) {
       const tbody = document.getElementById('items-body');
       const noItems = document.getElementById('no-items');
@@ -419,10 +538,8 @@
       let hasActive = false;
       items.forEach((item, i) => {
         if (item.status === 'pending' || item.status === 'running') hasActive = true;
-        const canSelect = item.status === 'done' && item.csv_filename;
-        const checkboxCell = canSelect
-          ? `<input type="checkbox" class="item-check" value="${item.id}" onchange="updateDownloadBtn()" />`
-          : '';
+        const canDownload = item.status === 'done' && item.csv_filename;
+        const checkboxCell = `<input type="checkbox" class="item-check" value="${item.id}" data-downloadable="${canDownload ? 1 : 0}" onchange="updateActionBtns()" />`;
         const downloadCell = item.csv_filename
           ? `<a href="/api/download/${encodeURIComponent(item.csv_filename)}">CSV</a>`
           : '-';
@@ -444,7 +561,8 @@
         tbody.appendChild(tr);
       });
 
-      updateDownloadBtn();
+      updateActionBtns();
+      document.getElementById('stop-btn').style.display = hasActive ? '' : 'none';
       if (hasActive) {
         startPolling();
       } else {

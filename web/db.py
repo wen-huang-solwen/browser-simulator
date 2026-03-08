@@ -92,6 +92,18 @@ def get_item(item_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def delete_items(item_ids: list[int]) -> int:
+    """Delete items by IDs. Returns number of rows deleted."""
+    if not item_ids:
+        return 0
+    conn = _connect()
+    placeholders = ",".join("?" for _ in item_ids)
+    cur = conn.execute(f"DELETE FROM scrape_items WHERE id IN ({placeholders})", item_ids)
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
+
 def update_item_status(item_id: int, status: str, **kwargs) -> None:
     """Update an item's status plus optional fields (error_message, csv_filename, result_count)."""
     sets = ["status = ?"]
@@ -99,6 +111,8 @@ def update_item_status(item_id: int, status: str, **kwargs) -> None:
     if status in ("done", "error"):
         sets.append("finished_at = ?")
         vals.append(datetime.now(timezone.utc).isoformat())
+    elif status == "pending":
+        sets.append("finished_at = NULL")
     for key in ("error_message", "csv_filename", "result_count"):
         if key in kwargs:
             sets.append(f"{key} = ?")

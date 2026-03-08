@@ -29,6 +29,8 @@ service = ScrapeService()
 
 _scrape_queue: asyncio.Queue | None = None
 _scrape_worker_task: asyncio.Task | None = None
+_current_scrape_task: asyncio.Task | None = None
+_current_scrape_item_id: int | None = None
 
 
 @asynccontextmanager
@@ -248,6 +250,27 @@ async def dashboard_page():
         return HTMLResponse(f.read())
 
 
+@app.post("/api/batch/add")
+async def batch_add(
+    url: str = Form(...),
+    max_reels: int = Form(DEFAULT_MAX_REELS),
+):
+    """Add a single scrape item."""
+    url = url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    if max_reels < 1 or max_reels > 9999:
+        max_reels = DEFAULT_MAX_REELS
+    try:
+        username = service.parse_username(url)
+    except ValueError:
+        username = url
+    platform = service.detect_platform(url)
+    ids = db.create_items([{"url": url, "username": username, "platform": platform, "max_reels": max_reels}])
+    await _scrape_queue.put(ids[0])
+    return {"id": ids[0]}
+
+
 @app.post("/api/batch/upload")
 async def batch_upload(file: UploadFile = File(...)):
     content = await file.read()
@@ -330,13 +353,68 @@ async def batch_download_selected(ids: list[int]):
     )
 
 
+@app.post("/api/batch/delete")
+async def batch_delete(ids: list[int]):
+    """Delete scrape items by IDs. Stops the running one if included."""
+    if not ids:
+        raise HTTPException(status_code=400, detail="No items specified")
+    # If the currently running item is in the delete list, cancel it
+    if _current_scrape_item_id in ids and _current_scrape_task:
+        _current_scrape_task.cancel()
+    # Remove pending items from the queue (rebuild it without deleted IDs)
+    deleted_set = set(ids)
+    new_queue: asyncio.Queue = asyncio.Queue()
+    while not _scrape_queue.empty():
+        try:
+            qid = _scrape_queue.get_nowait()
+            if qid not in deleted_set:
+                new_queue.put_nowait(qid)
+        except asyncio.QueueEmpty:
+            break
+    # Swap queues
+    while not new_queue.empty():
+        _scrape_queue.put_nowait(new_queue.get_nowait())
+    count = db.delete_items(ids)
+    return {"deleted": count}
+
+
+@app.post("/api/batch/rerun")
+async def batch_rerun(ids: list[int]):
+    """Re-queue selected scrape items for another run."""
+    if not ids:
+        raise HTTPException(status_code=400, detail="No items specified")
+    requeued = 0
+    for item_id in ids:
+        item = db.get_item(item_id)
+        if not item:
+            continue
+        db.update_item_status(item_id, "pending", error_message="", csv_filename="", result_count=0)
+        await _scrape_queue.put(item_id)
+        requeued += 1
+    if requeued == 0:
+        raise HTTPException(status_code=404, detail="No valid items to rerun")
+    return {"requeued": requeued}
+
+
+@app.post("/api/batch/stop")
+async def batch_stop():
+    """Stop the currently running scrape."""
+    if _current_scrape_task and _current_scrape_item_id:
+        _current_scrape_task.cancel()
+        db.update_item_status(_current_scrape_item_id, "error", error_message="Stopped by user")
+        return {"stopped": _current_scrape_item_id}
+    raise HTTPException(status_code=404, detail="No scrape is currently running")
+
+
 async def _scrape_worker() -> None:
     """Background worker that processes scrape items one at a time."""
+    global _current_scrape_task, _current_scrape_item_id
     while True:
         item_id = await _scrape_queue.get()
         item = db.get_item(item_id)
-        if not item or item["status"] == "done":
+        if not item or item["status"] in ("done", "error"):
             continue
+        _current_scrape_item_id = item_id
         db.update_item_status(item_id, "running")
         try:
             job = ScrapeJob(
@@ -344,7 +422,8 @@ async def _scrape_worker() -> None:
                 max_reels=item["max_reels"],
                 platform=item["platform"] or "instagram",
             )
-            await service.run_scrape(job)
+            _current_scrape_task = asyncio.create_task(service.run_scrape(job))
+            await _current_scrape_task
 
             # run_scrape swallows exceptions and puts them in progress_queue.
             # Drain the queue to detect errors.
@@ -363,5 +442,12 @@ async def _scrape_worker() -> None:
                     csv_filename=csv_filename,
                     result_count=len(job.results),
                 )
+        except asyncio.CancelledError:
+            # Re-check if item was deleted or just stopped
+            if db.get_item(item_id):
+                db.update_item_status(item_id, "error", error_message="Stopped by user")
         except Exception as e:
             db.update_item_status(item_id, "error", error_message=str(e)[:500])
+        finally:
+            _current_scrape_item_id = None
+            _current_scrape_task = None
