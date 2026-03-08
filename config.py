@@ -39,12 +39,12 @@ PAGE_LOAD_TIMEOUT = 15_000
 ELEMENT_TIMEOUT = 10_000
 
 # Delays (seconds) — ranges for randomization
-SCROLL_DELAY = (1.0, 2.5)
-PAGE_DELAY = (2.0, 4.0)
+SCROLL_DELAY = (2.0, 4.0)
+PAGE_DELAY = (3.0, 6.0)
 ACTION_DELAY = (0.5, 1.5)
 
 # Scraping limits
 DEFAULT_MAX_REELS = 50
 SCROLL_BATCH_SIZE = 12  # Instagram loads ~12 items per scroll
 MAX_SCROLL_ATTEMPTS = 100  # Safety limit for infinite scroll
-NO_NEW_ITEMS_THRESHOLD = 3  # Stop after N scrolls with no new items
+NO_NEW_ITEMS_THRESHOLD = 8  # Stop after N scrolls with no new items

@@ -235,6 +235,75 @@
       color: #555;
     }
 
+    /* Session status */
+    .session-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .session-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #f0f0f0;
+      color: #888;
+    }
+    .session-badge.active {
+      background: #e6f9ec;
+      color: #16a34a;
+    }
+    .session-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #ccc;
+    }
+    .session-badge.active .dot { background: #16a34a; }
+    .upload-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .upload-row select {
+      padding: 8px 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 13px;
+      background: #fafafa;
+    }
+    .upload-row label.file-btn {
+      padding: 8px 18px;
+      background: linear-gradient(135deg, #0095f6, #0077e6);
+      color: white;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    .upload-row label.file-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,149,246,0.3);
+    }
+    .upload-row .upload-status {
+      font-size: 12px;
+      color: #888;
+    }
+    .upload-row .upload-status.success { color: #16a34a; }
+    .upload-row .upload-status.error { color: #dc2626; }
+    .upload-hint {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 10px;
+      line-height: 1.6;
+    }
+
     /* Error */
     .error-msg {
       background: #fef2f2;
@@ -255,6 +324,31 @@
     <div>
       <h1>Reels 擷取工具</h1>
       <p>輸入帳號或網址，即時擷取 Instagram / Facebook / TikTok / YouTube 影片數據並匯出 CSV</p>
+    </div>
+  </div>
+
+  <div class="card" id="session-card">
+    <span class="form-label">Session Status</span>
+    <div class="session-bar" id="session-bar">
+      <span class="session-badge" id="badge-instagram"><span class="dot"></span>Instagram</span>
+      <span class="session-badge" id="badge-facebook"><span class="dot"></span>Facebook</span>
+      <span class="session-badge" id="badge-tiktok"><span class="dot"></span>TikTok</span>
+      <span class="session-badge active"><span class="dot"></span>YouTube (no login needed)</span>
+    </div>
+    <div class="upload-row">
+      <select id="upload-platform">
+        <option value="instagram">Instagram</option>
+        <option value="facebook">Facebook</option>
+        <option value="tiktok">TikTok</option>
+      </select>
+      <label class="file-btn">
+        Upload Session File
+        <input type="file" id="session-file" accept=".json" style="display:none" onchange="uploadSession()" />
+      </label>
+      <span class="upload-status" id="upload-status"></span>
+    </div>
+    <div class="upload-hint">
+      How to get a session file: run <code>python main.py &lt;username&gt; --platform instagram --login</code> on a machine with a browser, then upload the generated <code>.auth/session.json</code> file here.
     </div>
   </div>
 
@@ -454,6 +548,63 @@
     document.getElementById('url-input').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') startScrape();
     });
+
+    // --- Session Upload ---
+
+    async function loadSessionStatus() {
+      try {
+        const res = await fetch('/api/session/status');
+        const data = await res.json();
+        updateBadges(data);
+      } catch (e) { /* ignore */ }
+    }
+
+    function updateBadges(data) {
+      for (const [platform, active] of Object.entries(data)) {
+        const badge = document.getElementById('badge-' + platform);
+        if (!badge) continue;
+        if (active) {
+          badge.classList.add('active');
+        } else {
+          badge.classList.remove('active');
+        }
+      }
+    }
+
+    loadSessionStatus();
+
+    async function uploadSession() {
+      const fileInput = document.getElementById('session-file');
+      const platform = document.getElementById('upload-platform').value;
+      const statusEl = document.getElementById('upload-status');
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      statusEl.textContent = 'Uploading...';
+      statusEl.className = 'upload-status';
+
+      const formData = new FormData();
+      formData.append('platform', platform);
+      formData.append('file', file);
+
+      try {
+        const res = await fetch('/api/session/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (res.ok) {
+          statusEl.textContent = platform.charAt(0).toUpperCase() + platform.slice(1) + ' session uploaded successfully!';
+          statusEl.className = 'upload-status success';
+          updateBadges(data.status);
+        } else {
+          statusEl.textContent = data.detail || 'Upload failed';
+          statusEl.className = 'upload-status error';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Upload failed: ' + e.message;
+        statusEl.className = 'upload-status error';
+      }
+
+      fileInput.value = '';
+    }
   </script>
 </body>
 </html>

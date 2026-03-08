@@ -6,10 +6,11 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from config import DATA_DIR, DEFAULT_MAX_REELS
+from web.login_service import get_session_status, save_uploaded_session
 from web.scrape_service import ScrapeJob, ScrapeService
 
 # Ensure scraper loggers are at INFO level (worker process may not run basicConfig)
@@ -87,6 +88,35 @@ async def scrape(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/session/status")
+async def session_status():
+    return get_session_status()
+
+
+@app.post("/api/session/upload")
+async def session_upload(
+    platform: str = Form(...),
+    file: UploadFile = File(...),
+):
+    if platform not in ("instagram", "facebook", "tiktok"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    try:
+        save_uploaded_session(platform, content)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Restart service to pick up new session
+    await service.shutdown()
+    await service.startup()
+
+    return {"ok": True, "status": get_session_status()}
 
 
 @app.get("/api/download/{filename}")
