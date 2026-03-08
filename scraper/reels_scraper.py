@@ -61,6 +61,21 @@ async def collect_reels_from_grid(
     await page.goto(reels_url, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
     await page_delay()
 
+    # Check if Instagram session is valid
+    if "/accounts/login" in page.url:
+        raise RuntimeError(
+            "Instagram session is invalid or expired — redirected to login. "
+            "Please upload a new session file or re-login with: "
+            "python main.py <username> --login"
+        )
+    has_session = await page.evaluate("() => document.cookie.includes('ds_user_id')")
+    if not has_session:
+        raise RuntimeError(
+            "Instagram session is invalid or expired. "
+            "Please upload a new session file or re-login with: "
+            "python main.py <username> --login"
+        )
+
     if "Page Not Found" in (await page.title()) or await page.query_selector(
         "text=Sorry, this page isn't available"
     ):

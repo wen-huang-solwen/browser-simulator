@@ -93,9 +93,10 @@ async def collect_fb_reels_from_grid(
     # Check if Facebook session is valid (c_user cookie present after navigation)
     has_session = await page.evaluate("() => document.cookie.includes('c_user')")
     if not has_session:
-        logger.warning(
-            "Facebook session is invalid or expired — results may be limited. "
-            "Re-login with: python main.py <username> --platform facebook --login"
+        raise RuntimeError(
+            "Facebook session is invalid or expired. "
+            "Please upload a new session file or re-login with: "
+            "python main.py <username> --platform facebook --login"
         )
 
     # Dismiss login dialog that blocks scrolling for unauthenticated sessions
