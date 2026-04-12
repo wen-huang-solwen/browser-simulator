@@ -10,11 +10,15 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 
 import requests
 
-from config import INSTAGRAM_BASE, SESSION_FILE, USER_AGENT
+from config import AUTH_DIR, INSTAGRAM_BASE, SESSION_FILE, USER_AGENT
+
+# Cache file for username -> user_id mappings to avoid repeated API lookups.
+_USER_ID_CACHE_FILE = os.path.join(AUTH_DIR, "ig_user_id_cache.json")
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +101,102 @@ def _patch_instagrapi_extractors() -> None:
     extractors.extract_broadcast_channel = safe
 
 
-def _user_id_from_username(username: str, cookies: dict[str, str]) -> str:
-    """Look up a user's numeric ID via IG's web_profile_info endpoint.
+def _load_user_id_cache() -> dict[str, str]:
+    """Load the username -> user_id cache from disk."""
+    if not os.path.isfile(_USER_ID_CACHE_FILE):
+        return {}
+    try:
+        with open(_USER_ID_CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
 
-    We don't use instagrapi.user_id_from_username because its GraphQL path 400s
-    and its private /usernameinfo/ fallback 403s on web-captured sessions.
+
+def _save_user_id_cache(cache: dict[str, str]) -> None:
+    """Persist the username -> user_id cache to disk."""
+    os.makedirs(os.path.dirname(_USER_ID_CACHE_FILE), exist_ok=True)
+    with open(_USER_ID_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2)
+
+
+def _validate_session(cookies: dict[str, str]) -> None:
+    """Quick check that the session is still accepted by Instagram.
+
+    Hits an authenticated endpoint with redirects disabled. If Instagram
+    redirects to /accounts/login/, the session has been invalidated
+    server-side. This is important because web_profile_info returns 429
+    even for expired sessions, which would otherwise cause misleading
+    "rate limited" errors.
     """
+    resp = requests.get(
+        "https://www.instagram.com/api/v1/accounts/edit/web_form_data/",
+        cookies=cookies,
+        headers={
+            "User-Agent": USER_AGENT,
+            "X-IG-App-ID": IG_WEB_APP_ID,
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{INSTAGRAM_BASE}/",
+        },
+        timeout=15,
+        allow_redirects=False,
+    )
+    location = resp.headers.get("Location", "")
+    if resp.status_code in (401, 403) or "accounts/login" in location:
+        raise RuntimeError(
+            "Instagram session is invalid or expired. "
+            "Please upload a new session file via the dashboard "
+            "or run `python main.py <username> --login`."
+        )
+    # 200 or 429 here means the session is still recognised.
+
+
+def _user_id_from_search(username: str, cookies: dict[str, str]) -> str | None:
+    """Look up a user's numeric ID via IG's top search endpoint.
+
+    This is more resilient than web_profile_info which gets IP-rate-limited
+    aggressively. Returns None if the search doesn't find an exact match.
+    """
+    resp = requests.get(
+        "https://www.instagram.com/api/v1/web/search/topsearch/",
+        params={"query": username, "context": "user", "count": 5},
+        cookies=cookies,
+        headers={
+            "User-Agent": USER_AGENT,
+            "X-IG-App-ID": IG_WEB_APP_ID,
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{INSTAGRAM_BASE}/",
+        },
+        timeout=15,
+        allow_redirects=False,
+    )
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+        for entry in data.get("users", []):
+            user = entry.get("user", {})
+            if user.get("username", "").lower() == username.lower():
+                pk = user.get("pk") or user.get("pk_id")
+                if pk:
+                    return str(pk)
+    except (KeyError, ValueError):
+        pass
+    return None
+
+
+def _user_id_from_username(username: str, cookies: dict[str, str]) -> str:
+    """Look up a user's numeric ID via multiple IG endpoints with fallbacks.
+
+    Order: local cache -> web_profile_info -> topsearch.
+    Validates the session on first 429 so expired sessions fail fast.
+    """
+    # Check cache first to avoid hitting the API unnecessarily.
+    cache = _load_user_id_cache()
+    if username in cache:
+        logger.info("Using cached user ID %s for @%s", cache[username], username)
+        return cache[username]
+
+    # --- Attempt 1: web_profile_info (most reliable when not rate-limited) ---
     resp = requests.get(
         "https://www.instagram.com/api/v1/users/web_profile_info/",
         params={"username": username},
@@ -115,23 +209,78 @@ def _user_id_from_username(username: str, cookies: dict[str, str]) -> str:
         },
         timeout=15,
     )
+
+    if resp.status_code == 200:
+        try:
+            user = resp.json()["data"]["user"]
+        except (KeyError, ValueError) as e:
+            raise RuntimeError(f"Unexpected response when looking up @{username}") from e
+        if not user:
+            raise ValueError(f"Account '{username}' not found or not accessible")
+        uid = str(user["id"])
+        cache[username] = uid
+        _save_user_id_cache(cache)
+        return uid
+
     if resp.status_code == 404:
         raise ValueError(f"Account '{username}' not found or not accessible")
     if resp.status_code in (401, 403):
         raise RuntimeError(
             "Instagram session is invalid or expired. "
-            "Please upload a new session file."
+            "Please upload a new session file via the dashboard "
+            "or run `python main.py <username> --login`."
         )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Failed to look up @{username}: HTTP {resp.status_code}")
 
-    try:
-        user = resp.json()["data"]["user"]
-    except (KeyError, ValueError) as e:
-        raise RuntimeError(f"Unexpected response when looking up @{username}") from e
-    if not user:
-        raise ValueError(f"Account '{username}' not found or not accessible")
-    return str(user["id"])
+    # --- Attempt 2: topsearch fallback (works when web_profile_info is 429) ---
+    if resp.status_code == 429:
+        _validate_session(cookies)
+        logger.info("web_profile_info rate-limited, trying search fallback for @%s", username)
+        uid = _user_id_from_search(username, cookies)
+        if uid:
+            logger.info("Found user ID %s via search for @%s", uid, username)
+            cache[username] = uid
+            _save_user_id_cache(cache)
+            return uid
+
+        # Search didn't find an exact match — retry web_profile_info with backoff
+        backoff = 5
+        for attempt in range(3):
+            wait = backoff * (2 ** attempt)
+            logger.warning(
+                "Rate limited (429) looking up @%s, retrying in %ds (attempt %d/3)",
+                username, wait, attempt + 1,
+            )
+            time.sleep(wait)
+            resp = requests.get(
+                "https://www.instagram.com/api/v1/users/web_profile_info/",
+                params={"username": username},
+                cookies=cookies,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "X-IG-App-ID": IG_WEB_APP_ID,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": f"{INSTAGRAM_BASE}/{username}/",
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                try:
+                    user = resp.json()["data"]["user"]
+                except (KeyError, ValueError) as e:
+                    raise RuntimeError(f"Unexpected response when looking up @{username}") from e
+                if not user:
+                    raise ValueError(f"Account '{username}' not found or not accessible")
+                uid = str(user["id"])
+                cache[username] = uid
+                _save_user_id_cache(cache)
+                return uid
+            if resp.status_code != 429:
+                break
+
+    raise RuntimeError(
+        f"Could not look up @{username}. Instagram is rate-limiting this server. "
+        f"Please wait a few minutes and try again."
+    )
 
 
 def _scrape_reels_sync(username: str, max_reels: int, cookies: dict[str, str]) -> list[dict]:
@@ -156,6 +305,11 @@ def _scrape_reels_sync(username: str, max_reels: int, cookies: dict[str, str]) -
 
     cl = Client()
     cl.settings["cookies"] = dict(cookies)
+    cl.settings["authorization_data"] = {
+        "ds_user_id": self_user_id,
+        "sessionid": sessionid,
+        "should_use_header_over_cookies": True,
+    }
     cl.init()
     cl.authorization_data = {
         "ds_user_id": self_user_id,
@@ -179,6 +333,14 @@ def _scrape_reels_sync(username: str, max_reels: int, cookies: dict[str, str]) -
                 user_id, amount=max_reels, end_cursor=end_cursor
             )
         except ClientError as e:
+            if "429" in str(e):
+                wait = 5 * (2 ** min(page - 1, 4))
+                logger.warning(
+                    "Rate limited (429) on page %d, retrying in %ds", page, wait
+                )
+                time.sleep(wait)
+                page -= 1  # retry the same page
+                continue
             logger.error("API error on page %d: %s", page, e)
             break
 
