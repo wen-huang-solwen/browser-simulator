@@ -21,6 +21,7 @@ from web.scrape_service import ScrapeJob, ScrapeService
 # Ensure scraper loggers are at INFO level (worker process may not run basicConfig)
 logging.getLogger("scraper").setLevel(logging.INFO)
 logging.getLogger("scraper.fb_reels_scraper").setLevel(logging.INFO)
+logging.getLogger("scraper.ig_api_scraper").setLevel(logging.INFO)
 logging.getLogger("scraper.tk_scraper").setLevel(logging.INFO)
 logging.getLogger("scraper.yt_scraper").setLevel(logging.INFO)
 

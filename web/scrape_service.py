@@ -12,7 +12,7 @@ from config import DEFAULT_MAX_REELS
 from output.exporter import export_csv
 from scraper.browser import launch_browser
 from scraper.fb_reels_scraper import scrape_fb_reels
-from scraper.reels_scraper import scrape_account_reels
+from scraper.ig_api_scraper import scrape_account_reels_api
 from scraper.tk_scraper import scrape_tk_videos
 from scraper.yt_scraper import scrape_yt_videos
 
@@ -206,8 +206,9 @@ class ScrapeService:
                 "facebook": "scraper.fb_reels_scraper",
                 "tiktok": "scraper.tk_scraper",
                 "youtube": "scraper.yt_scraper",
+                "instagram": "scraper.ig_api_scraper",
             }
-            logger_name = logger_names.get(platform, "scraper.reels_scraper")
+            logger_name = logger_names.get(platform, "scraper.ig_api_scraper")
             scraper_logger = logging.getLogger(logger_name)
             handler = QueueLogHandler(job.progress_queue)
             handler.setFormatter(logging.Formatter("%(message)s"))
@@ -243,9 +244,13 @@ class ScrapeService:
                         job.max_reels,
                     )
                 else:
-                    context = self._get_context(platform)
-                    results = await scrape_account_reels(
-                        context,
+                    # Instagram — API path via instagrapi. No browser context needed.
+                    if not session_exists("instagram"):
+                        raise RuntimeError(
+                            "No Instagram session. Upload a session file via "
+                            "the dashboard or run `python main.py <username> --login` first."
+                        )
+                    results = await scrape_account_reels_api(
                         job.username,
                         job.max_reels,
                     )
