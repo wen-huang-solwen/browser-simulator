@@ -570,12 +570,16 @@
       const tbody = document.getElementById('items-body');
       const noItems = document.getElementById('no-items');
       const filterCount = document.getElementById('filter-count');
+
+      // Preserve user's selection across polling re-renders
+      const previouslySelected = new Set(getSelectedIds());
+
       tbody.innerHTML = '';
-      document.getElementById('select-all').checked = false;
 
       if (!items || items.length === 0) {
         noItems.style.display = 'block';
         document.getElementById('download-sel-btn').style.display = 'none';
+        document.getElementById('select-all').checked = false;
         filterCount.textContent = '';
         stopPolling();
         return;
@@ -589,7 +593,8 @@
       items.forEach((item, i) => {
         if (item.status === 'pending' || item.status === 'running') hasActive = true;
         const canDownload = item.status === 'done' && item.csv_filename;
-        const checkboxCell = `<input type="checkbox" class="item-check" value="${item.id}" data-downloadable="${canDownload ? 1 : 0}" onchange="updateActionBtns()" onclick="event.stopPropagation()" />`;
+        const isChecked = previouslySelected.has(item.id) ? 'checked' : '';
+        const checkboxCell = `<input type="checkbox" class="item-check" value="${item.id}" data-downloadable="${canDownload ? 1 : 0}" ${isChecked} onchange="updateActionBtns()" onclick="event.stopPropagation()" />`;
         const downloadCell = item.csv_filename
           ? `<a href="/api/download/${encodeURIComponent(item.csv_filename)}">CSV</a>`
           : '-';
@@ -615,6 +620,11 @@
         `;
         tbody.appendChild(tr);
       });
+
+      // Sync select-all with child checkbox state after restoring selection
+      const allCbs = document.querySelectorAll('.item-check');
+      document.getElementById('select-all').checked =
+        allCbs.length > 0 && Array.from(allCbs).every(cb => cb.checked);
 
       updateActionBtns();
       document.getElementById('stop-btn').style.display = hasActive ? '' : 'none';
