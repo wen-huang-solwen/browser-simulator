@@ -39,6 +39,11 @@ def init_db() -> None:
         conn.execute("SELECT logs FROM scrape_items LIMIT 0")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE scrape_items ADD COLUMN logs TEXT")
+    # Add total_views column if missing (migration for existing databases)
+    try:
+        conn.execute("SELECT total_views FROM scrape_items LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE scrape_items ADD COLUMN total_views INTEGER NOT NULL DEFAULT 0")
     conn.close()
 
 
@@ -118,7 +123,7 @@ def update_item_status(item_id: int, status: str, **kwargs) -> None:
         vals.append(datetime.now(timezone.utc).isoformat())
     elif status == "pending":
         sets.append("finished_at = NULL")
-    for key in ("error_message", "csv_filename", "result_count", "logs"):
+    for key in ("error_message", "csv_filename", "result_count", "logs", "total_views"):
         if key in kwargs:
             sets.append(f"{key} = ?")
             vals.append(kwargs[key])

@@ -328,10 +328,12 @@
             <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll()" /></th>
             <th>#</th>
             <th>URL</th>
+            <th>帳號</th>
             <th>平台</th>
             <th class="num">上限</th>
             <th>狀態</th>
             <th class="num">結果數</th>
+            <th class="num">總觀看次數</th>
             <th>建立時間</th>
             <th>下載</th>
           </tr>
@@ -367,6 +369,14 @@
       if (!iso) return '-';
       const d = new Date(iso);
       return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+    function fmtCount(n) {
+      if (n === null || n === undefined || n === '') return '-';
+      const v = Number(n);
+      if (!isFinite(v) || v <= 0) return '-';
+      if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1) + 'M';
+      if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1) + 'K';
+      return String(v);
     }
 
     async function addSingle() {
@@ -607,14 +617,20 @@
           tr.title = '點擊查看系統日誌';
           tr.onclick = () => openLogModal(item.id, item.url);
         }
+        const totalViewsRaw = item.total_views || 0;
+        const totalViewsHtml = item.status === 'done'
+          ? `<span title="${totalViewsRaw.toLocaleString()}">${fmtCount(totalViewsRaw)}</span>`
+          : '-';
         tr.innerHTML = `
           <td>${checkboxCell}</td>
           <td>${item.id}</td>
           <td class="url-cell" title="${item.url}">${item.url}</td>
+          <td class="url-cell" title="${item.username || ''}">${item.username || '-'}</td>
           <td>${item.platform || '-'}</td>
           <td class="num">${item.max_reels}</td>
           <td><span class="badge badge-${item.status}">${item.status}</span>${errorHtml}</td>
           <td class="num">${item.result_count || '-'}</td>
+          <td class="num">${totalViewsHtml}</td>
           <td class="time-cell">${fmtTime(item.created_at)}</td>
           <td>${downloadCell}</td>
         `;

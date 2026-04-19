@@ -512,10 +512,12 @@ async def _scrape_worker() -> None:
                 db.update_item_status(item_id, "error", error_message=error_message[:500], logs=logs_json)
             else:
                 csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
+                total_views = sum(int(r.get("views") or 0) for r in job.results)
                 db.update_item_status(
                     item_id, "done",
                     csv_filename=csv_filename,
                     result_count=len(job.results),
+                    total_views=total_views,
                     logs=logs_json,
                 )
         except asyncio.CancelledError:

@@ -12,7 +12,7 @@ from config import (
     NAVIGATION_TIMEOUT,
     NO_NEW_ITEMS_THRESHOLD,
 )
-from utils.human_behavior import human_scroll, page_delay, random_delay
+from utils.human_behavior import human_scroll, page_delay, random_delay, scroll_delay
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,16 @@ async def collect_reels_from_grid(
         else:
             no_new_count = 0
 
+        # The reels grid lives inside an inner scrollable div, not the window —
+        # window.scrollTo and mouse.wheel at the page level do nothing. Use
+        # scrollIntoView on the last reel link, which automatically walks up to
+        # the correct scrollable parent and triggers the lazy-load sentinel.
         await human_scroll(page)
+        await page.evaluate(
+            "() => { const links = document.querySelectorAll('a[href*=\"/reel/\"]');"
+            " if (links.length) links[links.length - 1].scrollIntoView({block: 'end'}); }"
+        )
+        await scroll_delay()
 
     results = list(collected.values())[:max_reels]
     logger.info("Collected %d reels with stats from grid", len(results))

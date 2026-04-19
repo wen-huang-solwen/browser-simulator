@@ -5,3 +5,5 @@ data/
 .venv/
 *.egg-info/
 .DS_Store
+fb_session_tool/facebook_session.json
+instagram_session_tool/instagram_session.json
