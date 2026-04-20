@@ -2,6 +2,10 @@
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUTH_DIR = os.path.join(BASE_DIR, ".auth")
@@ -20,6 +24,8 @@ FB_LOGIN_URL = f"{FACEBOOK_BASE}/login/"
 # TikTok URLs
 TIKTOK_BASE = "https://www.tiktok.com"
 TK_SESSION_FILE = os.path.join(AUTH_DIR, "tk_session.json")
+TK_PROXY = os.environ.get("TIKTOK_PROXY", "socks5://127.0.0.1:1080")
+# Smartproxy residential (TW): http://user-<USER>-country-tw:<PASS>@gate.smartproxy.com:7000
 
 # YouTube URLs
 YOUTUBE_BASE = "https://www.youtube.com"

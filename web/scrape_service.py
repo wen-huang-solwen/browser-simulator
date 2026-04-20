@@ -157,7 +157,7 @@ class ScrapeService:
             return match.group(1)
 
         # YouTube: https://www.youtube.com/@username or /channel/ID
-        match = re.search(r"youtube\.com/@([A-Za-z0-9_.]+)", url_or_username)
+        match = re.search(r"youtube\.com/@([A-Za-z0-9_.-]+)", url_or_username)
         if match:
             return match.group(1)
         match = re.search(r"youtube\.com/channel/([A-Za-z0-9_-]+)", url_or_username)
@@ -173,7 +173,7 @@ class ScrapeService:
             return match.group(1)
 
         username = url_or_username.lstrip("@")
-        if re.match(r"^[A-Za-z0-9_.]+$", username):
+        if re.match(r"^[A-Za-z0-9_.-]+$", username):
             return username
 
         raise ValueError(f"Cannot parse username from: {url_or_username}")
