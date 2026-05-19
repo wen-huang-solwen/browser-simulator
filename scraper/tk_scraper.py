@@ -40,14 +40,22 @@ async def scrape_tk_videos(
     logger.info("Fetching TikTok videos for @%s via yt-dlp", username_clean)
 
     all_entries: dict[str, dict] = {}  # vid -> entry
+    use_proxy = bool(TK_PROXY)
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             result = await asyncio.to_thread(
-                _run_ytdlp, profile_url, max_videos
+                _run_ytdlp, profile_url, max_videos, use_proxy
             )
         except Exception as e:
-            logger.error("yt-dlp attempt %d failed: %s", attempt, e)
+            err_str = str(e)
+            logger.error("yt-dlp attempt %d failed: %s", attempt, err_str)
+            # Smartproxy returns "response 612" and curl reports "CONNECT tunnel failed"
+            # when the proxy itself rejects the request (bad creds, quota, restricted target).
+            # Falling back to direct gets degraded but non-empty data, which beats nothing.
+            if use_proxy and ("CONNECT tunnel failed" in err_str or "response 612" in err_str):
+                logger.warning("Proxy unusable; retrying without proxy")
+                use_proxy = False
             if attempt < MAX_RETRIES:
                 await asyncio.sleep(RETRY_DELAY)
             continue
@@ -152,7 +160,7 @@ def _get_cookie_jar_path() -> str | None:
         return None
 
 
-def _run_ytdlp(profile_url: str, max_videos: int) -> dict:
+def _run_ytdlp(profile_url: str, max_videos: int, use_proxy: bool = True) -> dict:
     """Run yt-dlp to fetch playlist metadata."""
     cmd = [
         "yt-dlp",
@@ -166,9 +174,11 @@ def _run_ytdlp(profile_url: str, max_videos: int) -> dict:
         cmd.extend(["--cookies", cookie_jar])
         logger.info("Using TikTok session cookies for yt-dlp")
 
-    if TK_PROXY:
+    if use_proxy and TK_PROXY:
         cmd.extend(["--proxy", TK_PROXY])
         logger.info("Using proxy for yt-dlp: %s", TK_PROXY.split("@")[-1] if "@" in TK_PROXY else TK_PROXY)
+    elif TK_PROXY:
+        logger.info("Skipping proxy for this attempt (direct connection)")
 
     cmd.append(profile_url)
     result = subprocess.run(
