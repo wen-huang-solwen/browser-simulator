@@ -24,7 +24,7 @@ FB_LOGIN_URL = f"{FACEBOOK_BASE}/login/"
 # TikTok URLs
 TIKTOK_BASE = "https://www.tiktok.com"
 TK_SESSION_FILE = os.path.join(AUTH_DIR, "tk_session.json")
-TK_PROXY = os.environ.get("TIKTOK_PROXY", "socks5://127.0.0.1:1080")
+TK_PROXY = os.environ.get("TIKTOK_PROXY") or None
 # Smartproxy residential (TW): http://user-<USER>-country-tw:<PASS>@gate.smartproxy.com:7000
 
 # YouTube URLs

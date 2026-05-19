@@ -140,7 +140,9 @@ def _get_cookie_jar_path() -> str | None:
                     domain = "." + domain
                 path = c.get("path", "/")
                 secure = "TRUE" if c.get("secure", False) else "FALSE"
-                expires = str(int(c.get("expires", 0))) if c.get("expires") else "0"
+                exp_val = c.get("expires")
+                exp_int = int(exp_val) if exp_val and exp_val > 0 else 0
+                expires = str(exp_int)
                 name = c.get("name", "")
                 value = c.get("value", "")
                 f.write(f"{domain}\tTRUE\t{path}\t{secure}\t{expires}\t{name}\t{value}\n")
@@ -157,6 +159,7 @@ def _run_ytdlp(profile_url: str, max_videos: int) -> dict:
         "--flat-playlist",
         "-J",
         "--playlist-end", str(max_videos),
+        "--impersonate", "chrome",
     ]
     cookie_jar = _get_cookie_jar_path()
     if cookie_jar:
