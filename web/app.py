@@ -27,6 +27,10 @@ logging.getLogger("scraper.yt_scraper").setLevel(logging.INFO)
 
 service = ScrapeService()
 
+# Abort a scrape that runs longer than this many seconds so one hung job can
+# never block the queue forever. 0 disables the limit.
+JOB_TIMEOUT = int(os.environ.get("SCRAPE_JOB_TIMEOUT", "1800"))
+
 
 _scrape_queue: asyncio.Queue | None = None
 _scrape_worker_task: asyncio.Task | None = None
@@ -34,21 +38,39 @@ _current_scrape_task: asyncio.Task | None = None
 _current_scrape_item_id: int | None = None
 _current_logs: list[dict] = []
 _log_subscribers: list[asyncio.Queue] = []
+_shutting_down: bool = False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _scrape_queue, _scrape_worker_task
+    global _scrape_queue, _scrape_worker_task, _shutting_down
+    _shutting_down = False
     db.init_db()
-    await service.startup()
+    # A browser launch failure must not stop the whole server from booting —
+    # YouTube/TikTok keep working, and IG/FB jobs fail individually with a clear
+    # error instead of taking the process down on startup.
+    try:
+        await service.startup()
+    except Exception:
+        logging.exception("Browser startup failed; IG/FB scraping disabled until restart")
     _scrape_queue = asyncio.Queue()
-    _scrape_worker_task = asyncio.create_task(_scrape_worker())
+    _scrape_worker_task = asyncio.create_task(_scrape_worker_supervisor())
     # Resume any incomplete items from previous runs
     for item_id in db.get_pending_item_ids():
         await _scrape_queue.put(item_id)
     yield
+    _shutting_down = True
+    if _current_scrape_task:
+        _current_scrape_task.cancel()
     _scrape_worker_task.cancel()
-    await service.shutdown()
+    try:
+        await _scrape_worker_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await service.shutdown()
+    except Exception:
+        logging.exception("Error during browser shutdown")
 
 
 app = FastAPI(title="Reels Scraper", lifespan=lifespan)
@@ -484,50 +506,100 @@ async def _drain_progress(job: ScrapeJob) -> str:
     return error_message
 
 
-async def _scrape_worker() -> None:
-    """Background worker that processes scrape items one at a time."""
-    global _current_scrape_task, _current_scrape_item_id, _current_logs, _log_subscribers
+async def _scrape_worker_supervisor() -> None:
+    """Run the worker loop, restarting it if it ever crashes unexpectedly.
+
+    A single uncaught error must never permanently stop queue processing —
+    that would leave the server alive but silently doing nothing, which looks
+    just like a crash to users.
+    """
+    while not _shutting_down:
+        try:
+            await _scrape_worker_loop()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("Scrape worker loop crashed; restarting in 5s")
+            await asyncio.sleep(5)
+
+
+async def _scrape_worker_loop() -> None:
+    """Process queued scrape items one at a time."""
     while True:
         item_id = await _scrape_queue.get()
-        item = db.get_item(item_id)
-        if not item or item["status"] in ("done", "error"):
-            continue
-        _current_scrape_item_id = item_id
-        _current_logs = []
-        _log_subscribers = []
-        db.update_item_status(item_id, "running")
-        try:
-            job = ScrapeJob(
-                username=item["username"] or item["url"],
-                max_reels=item["max_reels"],
-                platform=item["platform"] or "instagram",
-            )
-            _current_scrape_task = asyncio.create_task(service.run_scrape(job))
-            drain_task = asyncio.create_task(_drain_progress(job))
-            await _current_scrape_task
-            error_message = await drain_task
+        await _process_item(item_id)
 
-            logs_json = json.dumps(_current_logs)
-            if error_message:
-                db.update_item_status(item_id, "error", error_message=error_message[:500], logs=logs_json)
+
+async def _process_item(item_id: int) -> None:
+    """Run a single scrape item to completion, recording its outcome.
+
+    All failure paths are contained here so the worker loop above never dies.
+    """
+    global _current_scrape_task, _current_scrape_item_id, _current_logs, _log_subscribers
+    item = db.get_item(item_id)
+    if not item or item["status"] in ("done", "error"):
+        return
+    _current_scrape_item_id = item_id
+    _current_logs = []
+    _log_subscribers = []
+    drain_task: asyncio.Task | None = None
+    try:
+        db.update_item_status(item_id, "running")
+        job = ScrapeJob(
+            username=item["username"] or item["url"],
+            max_reels=item["max_reels"],
+            platform=item["platform"] or "instagram",
+        )
+        _current_scrape_task = asyncio.create_task(service.run_scrape(job))
+        drain_task = asyncio.create_task(_drain_progress(job))
+
+        try:
+            if JOB_TIMEOUT > 0:
+                await asyncio.wait_for(_current_scrape_task, timeout=JOB_TIMEOUT)
             else:
-                csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
-                total_views = sum(int(r.get("views") or 0) for r in job.results)
-                db.update_item_status(
-                    item_id, "done",
-                    csv_filename=csv_filename,
-                    result_count=len(job.results),
-                    total_views=total_views,
-                    logs=logs_json,
-                )
-        except asyncio.CancelledError:
+                await _current_scrape_task
+        except asyncio.TimeoutError:
+            # wait_for already cancelled the scrape task; record and move on.
             logs_json = json.dumps(_current_logs)
-            # Re-check if item was deleted or just stopped
-            if db.get_item(item_id):
-                db.update_item_status(item_id, "error", error_message="Stopped by user", logs=logs_json)
-        except Exception as e:
+            db.update_item_status(
+                item_id, "error",
+                error_message=f"Scrape exceeded {JOB_TIMEOUT}s time limit and was aborted",
+                logs=logs_json,
+            )
+            return
+
+        error_message = await drain_task
+        logs_json = json.dumps(_current_logs)
+        if error_message:
+            db.update_item_status(item_id, "error", error_message=error_message[:500], logs=logs_json)
+        else:
+            csv_filename = os.path.basename(job.csv_path) if job.csv_path else ""
+            total_views = sum(int(r.get("views") or 0) for r in job.results)
+            db.update_item_status(
+                item_id, "done",
+                csv_filename=csv_filename,
+                result_count=len(job.results),
+                total_views=total_views,
+                logs=logs_json,
+            )
+    except asyncio.CancelledError:
+        # User stopped/deleted the job (inner task cancelled) — record and
+        # continue. Only re-raise when the whole server is shutting down so the
+        # worker task can exit cleanly.
+        logs_json = json.dumps(_current_logs)
+        if db.get_item(item_id):
+            db.update_item_status(item_id, "error", error_message="Stopped by user", logs=logs_json)
+        if _shutting_down:
+            raise
+    except Exception as e:
+        logging.exception("Scrape item %s failed", item_id)
+        try:
             logs_json = json.dumps(_current_logs)
             db.update_item_status(item_id, "error", error_message=str(e)[:500], logs=logs_json)
-        finally:
-            _current_scrape_item_id = None
-            _current_scrape_task = None
+        except Exception:
+            logging.exception("Failed to record error for item %s", item_id)
+    finally:
+        if drain_task and not drain_task.done():
+            drain_task.cancel()
+        _current_scrape_item_id = None
+        _current_scrape_task = None

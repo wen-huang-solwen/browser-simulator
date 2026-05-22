@@ -13,3 +13,16 @@ scp .auth/tk_session.json root@your-linode-ip:/root/browser-simulator/.auth/
 
 # Test it
 python main.py yueweili520 --platform tiktok --max-reels 50
+
+# ── Run the web service so it stays up ────────────────────────────────
+# Install as a systemd service: auto-starts on boot and auto-restarts if it
+# ever crashes or gets OOM-killed. This is what keeps the page from going down.
+sudo bash deploy/install_service.sh
+
+# Manage it:
+systemctl status reels-scraper      # is it running?
+systemctl restart reels-scraper     # restart manually
+journalctl -u reels-scraper -f      # follow logs
+
+# Using a virtualenv? Point the installer at its python:
+sudo PYTHON_BIN=/path/to/venv/bin/python bash deploy/install_service.sh

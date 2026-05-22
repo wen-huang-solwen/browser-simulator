@@ -1,0 +1,25 @@
+[Unit]
+Description=Reels Scraper web service
+After=network-online.target
+Wants=network-online.target
+# Keep restarting forever, even after repeated rapid failures (no give-up).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=@PROJECT_DIR@
+# Load TIKTOK_PROXY and any other secrets; "-" makes the file optional.
+EnvironmentFile=-@PROJECT_DIR@/.env
+Environment=WEB_RELOAD=0
+Environment=WEB_HOST=0.0.0.0
+Environment=WEB_PORT=8000
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PYTHON_BIN@ run_web.py
+# Auto-restart on any exit (crash, OOM kill, unhandled error).
+Restart=always
+RestartSec=5
+# Give in-flight scrapes a chance to wind down on stop/restart.
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target
